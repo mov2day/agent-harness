@@ -1,0 +1,7 @@
+node_modules/
+dist/
+coverage/
+.harness/
+*.sqlite*
+native/file-helper
+.DS_Store
