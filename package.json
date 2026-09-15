@@ -3,13 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.17" },
+  "engines": {
+    "node": ">=22.17"
+  },
   "scripts": {
     "build": "tsc --noEmit && node scripts/build.mjs",
-    "test": "tsx --test test/*.test.ts",
+    "test": "node --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "start": "tsx src/cli.ts serve",
-    "harness": "tsx src/cli.ts",
+    "start": "node --import tsx src/cli.ts serve",
+    "harness": "node --import tsx src/cli.ts",
     "verify": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
