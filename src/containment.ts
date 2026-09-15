@@ -1,5 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { check, digest, type Session } from "./core.js";
+import { check, digest, roles, type Session } from "./core.js";
+import {
+  Policies,
+  modelCapabilitiesSchema,
+  type ModelCapabilities,
+} from "./policy.js";
 import type { Store } from "./store.js";
 export const runtimeScenarios = [
   "identity",
@@ -18,6 +23,7 @@ export interface RuntimeCertificate {
   id: string;
   runtime: "opencode" | "codex";
   version: string;
+  models: ModelCapabilities;
   platform: "linux" | "darwin";
   image: string;
   sourceHash: string;
@@ -149,6 +155,10 @@ export class Containment {
   ) {}
   certificate(c: RuntimeCertificate) {
     check(
+      modelCapabilitiesSchema.safeParse(c.models).success,
+      "runtime_model_capabilities",
+    );
+    check(
       c.approved && c.author !== c.reviewer && c.reviewer.length > 0,
       "independent_runtime_review",
     );
@@ -167,6 +177,36 @@ export class Containment {
       );
     check(c.id === digest({ ...c, id: undefined }), "certificate_hash");
     return c;
+  }
+  capabilities(session?: Session): ModelCapabilities {
+    let certificates = this.store
+      .list<RuntimeCertificate>("runtime-certificate")
+      .filter((c) => {
+        try {
+          return c.platform === process.platform && !!this.certificate(c);
+        } catch {
+          return false;
+        }
+      });
+    if (session) {
+      const binding = this.store.get<RuntimeBinding>(
+        "runtime-binding",
+        session.session,
+      );
+      certificates = certificates.filter((c) => c.id === binding?.certificate);
+    }
+    const first = certificates[0];
+    if (!first) return {};
+    const result: ModelCapabilities = {};
+    for (const role of roles) {
+      for (const [model, levels] of Object.entries(first.models[role] ?? {})) {
+        const shared = levels.filter((level) =>
+          certificates.every((c) => c.models[role]?.[model]?.includes(level)),
+        );
+        if (shared.length) (result[role] ??= {})[model] = shared;
+      }
+    }
+    return result;
   }
   // Only the authenticated owner control plane installs certificates. Runtime callers cannot self-attest.
   install(c: RuntimeCertificate) {
@@ -192,6 +232,16 @@ export class Containment {
       session.integration,
     );
     check(integration?.runtime === c.runtime, "runtime_identity");
+    const policies = new Policies(this.store),
+      effective = policies.effective(session.repository);
+    policies.validateModels(effective.policy, c.models);
+    if (session.model)
+      check(
+        c.models[session.role]?.[session.model.model]?.includes(
+          session.model.reasoning,
+        ),
+        "unsupported_model",
+      );
     validateContainer(this.inspect(container), {
       container,
       image: c.image,

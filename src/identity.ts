@@ -274,6 +274,7 @@ export class Identity {
         status: "active",
         stage: "research",
         skills: this.approvedSkills(binding.repository),
+        model: policy.policy.models.Conductor,
         policy: policy.id,
         enforcement: "unverified",
         created: this.store.clock.now(),

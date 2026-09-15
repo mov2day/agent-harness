@@ -92,6 +92,7 @@ export class Engine {
         this.repositories,
       );
       this.containment = new Containment(this.store, options.sourceHash);
+      this.policies.setModelCapabilities(() => this.containment.capabilities());
       this.operations = new Operations(
         this.store,
         this.identity,
@@ -114,6 +115,7 @@ export class Engine {
         this.policies,
         this.artifacts,
         this.operations,
+        (session) => this.containment.capabilities(session),
       );
       this.artifacts.setInvalidator((root) =>
         this.operations.invalidate(root, "artifact_changed"),

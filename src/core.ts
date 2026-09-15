@@ -93,6 +93,7 @@ export interface Session extends Scope {
   status: "active" | "paused" | "terminated" | "needs_attention";
   stage: Stage;
   skills: Record<string, string>;
+  model?: { model: string; reasoning: string };
   policy: string;
   enforcement: "unverified" | "enforced";
   created: number;

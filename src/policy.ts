@@ -67,6 +67,11 @@ export const policySchema = z
   })
   .strict();
 export type Policy = z.infer<typeof policySchema>;
+export const modelCapabilitiesSchema = z.record(
+  z.enum(roles),
+  z.record(z.array(z.string().min(1)).min(1)),
+);
+export type ModelCapabilities = z.infer<typeof modelCapabilitiesSchema>;
 export interface PolicyRecord {
   id: string;
   policy: Policy;
@@ -103,12 +108,16 @@ const ceilings = [
   "timeoutMs",
 ] as const;
 export class Policies {
+  private modelCapabilities: (scope: string) => ModelCapabilities = () => ({});
   constructor(
     readonly store: Store,
     private onChange: (repository?: string) => void = () => {},
   ) {}
   setInvalidator(fn: (repository?: string) => void) {
     this.onChange = fn;
+  }
+  setModelCapabilities(fn: (scope: string) => ModelCapabilities) {
+    this.modelCapabilities = fn;
   }
   publish(scope: string, candidate: unknown, activate: boolean): PolicyRecord {
     const parsed = policySchema.safeParse(candidate);
@@ -120,6 +129,7 @@ export class Policies {
         parsed.error.flatten(),
       );
     const p = parsed.data;
+    this.validateModels(p, this.modelCapabilities(scope));
     if (scope !== "global")
       this.assertTightening(this.active("global").policy, p);
     return this.store.transaction(() => {
@@ -233,17 +243,22 @@ export class Policies {
         !r.policy.denyPaths.some((p) => matches(path, p, nocase)),
     );
   }
-  validateModels(
-    p: Policy,
-    capabilities: Partial<Record<Role, Record<string, string[]>>>,
-  ) {
+  validateModels(p: Policy, capabilities: ModelCapabilities) {
+    const errors: Record<string, string> = {};
     for (const [role, setting] of Object.entries(p.models))
-      check(
-        capabilities[role as Role]?.[setting.model]?.includes(
+      if (
+        !capabilities[role as Role]?.[setting.model]?.includes(
           setting.reasoning,
-        ),
+        )
+      )
+        errors[`models.${role}`] =
+          `Unsupported model/reasoning: ${setting.model} / ${setting.reasoning}`;
+    if (Object.keys(errors).length)
+      throw new HarnessError(
         "unsupported_model",
-        `Unsupported model/reasoning for ${role}`,
+        "Unsupported model/reasoning settings",
+        400,
+        errors,
       );
   }
 }

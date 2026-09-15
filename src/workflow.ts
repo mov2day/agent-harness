@@ -11,7 +11,7 @@ import {
 } from "./core.js";
 import type { Store } from "./store.js";
 import type { Identity } from "./identity.js";
-import type { Policies } from "./policy.js";
+import type { Policies, ModelCapabilities } from "./policy.js";
 import type { Operations, ActionApproval } from "./operations.js";
 export interface Artifact {
   id: string;
@@ -238,7 +238,8 @@ export class Workflow {
     readonly policies: Policies,
     readonly artifacts: Artifacts,
     readonly operations: Operations,
-    private models: Partial<Record<Role, Record<string, string[]>>> = {},
+    private models:
+      ModelCapabilities | ((session: Session) => ModelCapabilities) = {},
   ) {}
   admit(
     parent: Session,
@@ -263,9 +264,11 @@ export class Workflow {
         "specialist_limit",
       );
       const config = setting ?? effective.policy.models[role];
+      const capabilities =
+        typeof this.models === "function" ? this.models(current) : this.models;
       if (config)
         check(
-          this.models[role]?.[config.model]?.includes(config.reasoning),
+          capabilities[role]?.[config.model]?.includes(config.reasoning),
           "unsupported_model",
         );
       const sessionId = id();
@@ -279,6 +282,7 @@ export class Workflow {
         connection: id(),
         generation: 1,
         enforcement: "unverified",
+        model: config,
         created: this.store.clock.now(),
       };
       this.identity.saveSession(child);
