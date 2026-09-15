@@ -9,7 +9,7 @@ The normative specification is [plan.MD](plan.MD). This ledger distinguishes cod
 | 3 | Operation leases, native file broker, gateway, isolated execution, cancellation | Implemented; macOS helper and 17 targeted tests pass; live Linux/container race evidence pending |
 | 4 | Specialist admission, artifacts, review workflow and dependency graph | Implemented; 22 tests pass, including revision boundaries and diamond invalidation |
 | 5 | Authoritative checkpoints, provenance, evaluated learning and rollback | Implemented; 28 tests pass for fidelity, trust, evaluation gates, privacy and rollback |
-| 6 | Authenticated React controls, alerts, durable recovery, conformance and release tooling | Pending |
+| 6 | Authenticated React controls, alerts, durable recovery, conformance and release tooling | Controls and API implemented; browser sign-in verified; 37 tests pass; release tooling in progress |
 | 7 | Separate Codex adapter and compatibility verification | Pending |
 
 ## Implementation choices

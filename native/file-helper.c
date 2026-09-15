@@ -19,6 +19,9 @@
 #endif
 #define LIMIT 2000000
 #define DEPTH 128
+static int cleanup_parent=-1;
+static char cleanup_name[96];
+static void cleanup(void){if(cleanup_parent>=0&&cleanup_name[0])unlinkat(cleanup_parent,cleanup_name,0);}
 static _Noreturn void deny(const char *message) { fprintf(stderr,"%s: %s\n",message,strerror(errno));exit(1); }
 static int same(struct stat a,struct stat b){return a.st_dev==b.st_dev&&a.st_ino==b.st_ino&&((a.st_mode&S_IFMT)==(b.st_mode&S_IFMT));}
 static int secure_open(int parent,const char *path,int flags,mode_t mode){
@@ -63,14 +66,17 @@ int main(int argc,char **argv){
   struct chain c=resolve_parent(root,argv[5]);int parent=c.fd[c.count-1];int fd=leaf(&c);
   if(!strcmp(argv[4],"read")){if(fd<0)return 44;revalidate(&c,root,argv[1]);copy(fd,STDOUT_FILENO);return 0;}
   expected(fd,argv[6]);
+#ifdef HARNESS_TESTING
+  if(getenv("HARNESS_TEST_PAUSE")){fputs("READY\n",stdout);fflush(stdout);if(getchar()!='g')deny("test admission");}
+#endif
   if(!strcmp(argv[4],"replace")){
     if(argc!=8)deny("content argument");int content=open(argv[7],O_RDONLY|O_NOFOLLOW|O_CLOEXEC);if(content<0)deny("content file");
     unsigned int random; if(getentropy(&random,sizeof(random)))deny("random source"); char temp[96];snprintf(temp,sizeof(temp),".harness-effect-%ld-%u",(long)getpid(),random);
-    int output=secure_open(parent,temp,O_WRONLY|O_CREAT|O_EXCL,0600);if(output<0)deny("temporary create");
+    atexit(cleanup);cleanup_parent=parent;strcpy(cleanup_name,temp);int output=secure_open(parent,temp,O_WRONLY|O_CREAT|O_EXCL,0600);if(output<0)deny("temporary create");
     copy(content,output);if(fd>=0){struct stat st;if(fstat(fd,&st)||fchmod(output,st.st_mode&0777))deny("mode preservation");}
     if(fsync(output))deny("content durability");revalidate(&c,root,argv[1]);int current=leaf(&c);expected(current,argv[6]);
     if(fd>=0){struct stat a,b;if(current<0||fstat(fd,&a)||fstat(current,&b)||!same(a,b))deny("leaf replaced");}
-    if(renameat(parent,temp,parent,c.leaf))deny("replacement");if(fsync(parent))deny("directory durability");return 0;
+    if(renameat(parent,temp,parent,c.leaf))deny("replacement");cleanup_name[0]=0;if(fsync(parent))deny("directory durability");return 0;
   }
   revalidate(&c,root,argv[1]);int current=leaf(&c);expected(current,argv[6]);
   if(fd<0||current<0)deny("missing mutation target");struct stat a,b;if(fstat(fd,&a)||fstat(current,&b)||!same(a,b))deny("leaf changed");
