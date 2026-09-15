@@ -10,7 +10,7 @@ The normative specification is [plan.MD](plan.MD). This ledger distinguishes cod
 | 4 | Specialist admission, artifacts, review workflow and dependency graph | Implemented; 22 tests pass, including revision boundaries and diamond invalidation |
 | 5 | Authoritative checkpoints, provenance, evaluated learning and rollback | Implemented; 28 tests pass for fidelity, trust, evaluation gates, privacy and rollback |
 | 6 | Authenticated React controls, alerts, durable recovery, conformance and release tooling | Controls and API implemented; browser sign-in verified; 37 tests pass; release tooling in progress |
-| 7 | Separate Codex adapter and compatibility verification | Pending |
+| 7 | Separate Codex adapter and compatibility verification | Protocol adapter implemented; three independent adapter tests pass against locally generated schema; live containment certification remains pending |
 
 ## Implementation choices
 
