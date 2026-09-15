@@ -22,11 +22,22 @@ export function recoveryClockSource(): RecoveryClockSource {
       boot = execFileSync("/usr/sbin/sysctl", ["-n", "kern.boottime"], {
         encoding: "utf8",
         timeout: 1000,
+        stdio: ["ignore", "pipe", "pipe"],
       }).trim();
   } catch {
     /* Unknown boot identity retains all recent events conservatively. */
   }
-  return { wall: Date.now, uptime: () => uptime() * 1000, boot };
+  return {
+    wall: Date.now,
+    uptime: () => {
+      try {
+        return uptime() * 1000;
+      } catch {
+        return 0;
+      }
+    },
+    boot,
+  };
 }
 export function recoveryElapsed(
   previous: ClockCheckpoint,

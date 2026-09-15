@@ -32,6 +32,8 @@ docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges a
 
 On 2026-09-15 the Linux arm64 image `9658938cc789` passed type checking, all 50 tests, and the production build. This includes actual `openat2` helper execution and adversarial namespace-race fixtures. The additional restart-clock tests were added afterward and verified locally; this earlier Linux result does not cover them.
 
+The updated Linux image `4cd54277674c` passed all **63** tests, type checking and the production build on 2026-09-16. The same 63 tests and checks passed on macOS. This run adds restart-clock recovery, model validation, bounded runtime health, failed audit writes/commits, and real TLS gateway fixtures. TLS fixture routing is local and explicitly controlled by the test; production DNS checks, pinned lookup and hostname verification remain enabled.
+
 ## Authorization mechanism benchmark
 
 ```sh

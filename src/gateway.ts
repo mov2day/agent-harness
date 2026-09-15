@@ -1,5 +1,7 @@
 import { lookup } from "node:dns/promises";
-import { request } from "node:https";
+import type { LookupAddress } from "node:dns";
+import { request as httpsRequest, type RequestOptions } from "node:https";
+import type { ClientRequest, IncomingMessage } from "node:http";
 import { isIP, type LookupFunction } from "node:net";
 import { check, digest, hash, id } from "./core.js";
 import type { Operation, Operations } from "./operations.js";
@@ -63,11 +65,27 @@ export interface Evidence {
   trust: "untrusted";
   sources: string[];
 }
+export type HttpsRequestFactory = (
+  url: URL,
+  options: RequestOptions,
+  callback: (response: IncomingMessage) => void,
+) => ClientRequest;
+export type ResolveAddresses = (
+  hostname: string,
+  options: { all: true; verbatim: true },
+) => Promise<LookupAddress[]>;
+export const pinnedLookup =
+  (address: string, family: number): LookupFunction =>
+  (_hostname, options, callback) => {
+    if (options.all) callback(null, [{ address, family }]);
+    else callback(null, address, family);
+  };
 export class Gateway {
   constructor(
     readonly store: Store,
     readonly operations: Operations,
-    private resolve = lookup,
+    private resolve: ResolveAddresses = lookup,
+    private request: HttpsRequestFactory = httpsRequest,
   ) {}
   async fetch(op: Operation, signal: AbortSignal): Promise<Evidence> {
     const cacheKey = digest([op.repository, op.session, op.args.url]);
@@ -168,13 +186,12 @@ export class Gateway {
   ): Promise<{ status: number; location?: string; body: Buffer }> {
     return new Promise((resolve, reject) => {
       // The TLS peer is validated against url.hostname; DNS is never looked up a second time.
-      const pinnedLookup: LookupFunction = (_host, _options, callback) =>
-        callback(null, address, family);
-      const req = request(
+      const req = this.request(
         url,
         {
           method: "GET",
-          lookup: pinnedLookup,
+          lookup: pinnedLookup(address, family),
+          family,
           servername: url.hostname,
           rejectUnauthorized: true,
           signal,
