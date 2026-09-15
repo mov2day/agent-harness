@@ -47,6 +47,7 @@ export class Engine {
   private lock: string;
   private lockHandle: number;
   private sweep: ReturnType<typeof setInterval>;
+  private healthCheck: ReturnType<typeof setInterval>;
   constructor(readonly options: EngineOptions) {
     const requested = resolve(options.state);
     mkdirSync(requested, { recursive: true, mode: 0o700 });
@@ -98,6 +99,9 @@ export class Engine {
         this.identity,
         this.policies,
         (s) => this.containment.healthy(s),
+      );
+      this.containment.setInvalidator((session) =>
+        this.operations.invalidate(session, "enforcement_unhealthy"),
       );
       this.files = new NativeFiles(options.helper);
       this.gateway = new Gateway(this.store, this.operations);
@@ -151,6 +155,16 @@ export class Engine {
         }
       }, 1000);
       this.sweep.unref();
+      this.healthCheck = setInterval(() => {
+        void this.containment
+          .refresh()
+          .catch((error) =>
+            process.stderr.write(
+              `Runtime health check failed: ${String(error)}\n`,
+            ),
+          );
+      }, 250);
+      this.healthCheck.unref();
     } catch (error) {
       closeSync(this.lockHandle);
       unlinkSync(this.lock);
@@ -324,6 +338,8 @@ export class Engine {
   }
   close() {
     clearInterval(this.sweep);
+    clearInterval(this.healthCheck);
+    this.containment.close();
     this.store.close();
     closeSync(this.lockHandle);
     unlinkSync(this.lock);

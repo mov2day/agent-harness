@@ -8,3 +8,4 @@ native/file-helper
 native/file-helper-test
 __pycache__/
 *.pyc
+conformance/results/

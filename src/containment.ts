@@ -1,4 +1,5 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { check, digest, roles, type Session } from "./core.js";
 import {
   Policies,
@@ -138,6 +139,27 @@ export const inspectContainer = (container: string): ContainerInspection => {
   check(Array.isArray(results) && results.length === 1, "container_inspection");
   return results[0];
 };
+const exec = promisify(execFile);
+export const inspectContainers = async (
+  containers: string[],
+): Promise<ContainerInspection[]> => {
+  check(
+    containers.length > 0 && containers.every((c) => /^[a-f0-9]{64}$/.test(c)),
+    "container_id",
+  );
+  const { stdout } = await exec(
+    "docker",
+    ["inspect", "--type", "container", ...containers],
+    { timeout: 1000, maxBuffer: 8 * 1024 * 1024 },
+  );
+  const results = JSON.parse(stdout);
+  check(
+    Array.isArray(results) && results.length === containers.length,
+    "container_inspection",
+  );
+  return results;
+};
+export const HEALTH_MAX_AGE_MS = 1000;
 export interface RuntimeBinding {
   session: string;
   connection: string;
@@ -148,11 +170,103 @@ export interface RuntimeBinding {
   healthy: boolean;
 }
 export class Containment {
+  private onFailure: (session: string) => void = () => {};
+  private refreshing = false;
+  private closed = false;
   constructor(
     readonly store: Store,
     private sourceHash: string,
     private inspect = inspectContainer,
   ) {}
+  setInvalidator(fn: (session: string) => void) {
+    this.onFailure = fn;
+  }
+  close() {
+    this.closed = true;
+  }
+  private fail(session: Session, binding: RuntimeBinding, error: unknown) {
+    if (!binding.healthy) return;
+    binding.healthy = false;
+    this.store.transaction(() => {
+      this.store.put(
+        "runtime-binding",
+        session.session,
+        binding,
+        session.repository,
+        session.session,
+      );
+      this.store.audit(
+        "runtime.health_failed",
+        { reason: String(error) },
+        session.repository,
+        session.session,
+      );
+      this.onFailure(session.session);
+    });
+  }
+  async refresh(inspect = inspectContainers) {
+    if (this.refreshing || this.closed) return;
+    const sessions = this.store
+      .list<Session>("session")
+      .filter((s) => s.status === "active" && s.enforcement === "enforced");
+    const active = sessions.flatMap((session) => {
+      const binding = this.store.get<RuntimeBinding>(
+        "runtime-binding",
+        session.session,
+      );
+      return binding?.healthy ? [{ session, binding }] : [];
+    });
+    if (!active.length) return;
+    this.refreshing = true;
+    const started = this.store.clock.now();
+    try {
+      const containers = [...new Set(active.map((a) => a.binding.container))];
+      const results = await inspect(containers);
+      if (this.closed) return;
+      for (const { session, binding } of active) {
+        const current = this.store.get<RuntimeBinding>(
+          "runtime-binding",
+          session.session,
+        );
+        if (
+          !current?.healthy ||
+          current.container !== binding.container ||
+          current.connection !== binding.connection
+        )
+          continue;
+        try {
+          check(
+            this.store.clock.now() - started < HEALTH_MAX_AGE_MS,
+            "runtime_health_stale",
+          );
+          const inspection = results.find((c) => c.Id === binding.container);
+          check(inspection, "container_inspection");
+          validateContainer(inspection, {
+            container: binding.container,
+            image: binding.image,
+            session: session.runtimeSession,
+            connection: binding.connection,
+          });
+          current.checked = started;
+          this.store.put(
+            "runtime-binding",
+            session.session,
+            current,
+            session.repository,
+            session.session,
+          );
+        } catch (error) {
+          this.fail(session, current, error);
+        }
+      }
+    } catch (error) {
+      if (!this.closed)
+        for (const { session, binding } of active)
+          this.fail(session, binding, error);
+    } finally {
+      this.refreshing = false;
+    }
+  }
   certificate(c: RuntimeCertificate) {
     check(
       modelCapabilitiesSchema.safeParse(c.models).success,
@@ -296,28 +410,13 @@ export class Containment {
       );
       check(c, "runtime_uncertified");
       this.certificate(c);
-      validateContainer(this.inspect(b.container), {
-        container: b.container,
-        image: b.image,
-        session: session.runtimeSession,
-        connection: session.connection,
-      });
+      check(
+        this.store.clock.now() - b.checked < HEALTH_MAX_AGE_MS,
+        "runtime_health_stale",
+      );
       return true;
     } catch (error) {
-      b.healthy = false;
-      this.store.put(
-        "runtime-binding",
-        session.session,
-        b,
-        session.repository,
-        session.session,
-      );
-      this.store.audit(
-        "runtime.health_failed",
-        { reason: String(error) },
-        session.repository,
-        session.session,
-      );
+      this.fail(session, b, error);
       return false;
     }
   }
