@@ -276,6 +276,12 @@ function App() {
               </button>
             </div>
           )}
+          {!state.storageHealth.healthy && (
+            <div role="alert" className="error banner">
+              Audit storage failed. Protected operations are paused. Restore
+              storage, then restart the engine and reconcile interrupted work.
+            </div>
+          )}
           {notice && (
             <div role="status" className="notice banner">
               {notice}

@@ -13,9 +13,36 @@ export class Store {
   readonly db: DatabaseSync;
   readonly clock: Clock;
   private inTransaction = false;
+  private transactionAudited = false;
   private previousClock?: ClockCheckpoint;
   private recoverySource?: RecoveryClockSource;
   private denialClockRecovered = false;
+  private auditFailure?: { event: string; reason: string; time: number };
+  private failureListeners: Array<() => void> = [];
+  get fault() {
+    return this.auditFailure;
+  }
+  assertHealthy() {
+    check(
+      !this.auditFailure,
+      "required_audit_failed",
+      "Required audit storage failed; restart and reconciliation are required",
+    );
+  }
+  onAuditFailure(fn: () => void) {
+    this.failureListeners.push(fn);
+  }
+  private latchAuditFailure(event: string, error: unknown) {
+    if (this.auditFailure) return;
+    this.auditFailure = {
+      event,
+      reason: String(error),
+      time: this.clock.now(),
+    };
+    queueMicrotask(() => {
+      for (const notify of this.failureListeners) notify();
+    });
+  }
   constructor(
     path: string,
     clock?: Clock,
@@ -127,6 +154,7 @@ export class Store {
       }
     }
     this.inTransaction = true;
+    this.transactionAudited = false;
     try {
       const result = fn();
       check(
@@ -135,7 +163,13 @@ export class Store {
         "Transactions cannot contain asynchronous effects",
       );
       this.put("meta", "clock", this.clockCheckpoint());
-      this.db.exec("COMMIT");
+      try {
+        this.db.exec("COMMIT");
+      } catch (error) {
+        if (this.transactionAudited)
+          this.latchAuditFailure("transaction.commit", error);
+        throw error;
+      }
       return result;
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -145,18 +179,25 @@ export class Store {
     }
   }
   audit(event: string, data: unknown, repository = "", session = "") {
-    this.db
-      .prepare(
-        "INSERT INTO audit(id,time,repository,session,event,data) VALUES(?,?,?,?,?,?)",
-      )
-      .run(
-        id(),
-        this.clock.now(),
-        repository,
-        session,
-        event,
-        JSON.stringify(data),
-      );
+    try {
+      this.db
+        .prepare(
+          "INSERT INTO audit(id,time,repository,session,event,data) VALUES(?,?,?,?,?,?)",
+        )
+        .run(
+          id(),
+          this.clock.now(),
+          repository,
+          session,
+          event,
+          JSON.stringify(data),
+        );
+      if (this.inTransaction) this.transactionAudited = true;
+    } catch (error) {
+      // This in-memory latch survives a rollback of the failed audit transaction.
+      this.latchAuditFailure(event, error);
+      throw error;
+    }
   }
   close() {
     this.db.close();

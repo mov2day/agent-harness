@@ -169,6 +169,16 @@ export class Operations {
     private health: (session: Session) => boolean,
   ) {
     this.monitor = new DenialMonitor(store);
+    store.onAuditFailure(() => {
+      for (const controller of this.aborts.values())
+        controller.abort(new Error("required_audit_failed"));
+      for (const cancel of this.cancelHooks.values())
+        void cancel().catch((error) =>
+          process.stderr.write(
+            `Cancellation after audit failure: ${String(error)}\n`,
+          ),
+        );
+    });
     identity.hooks(
       (session, reason) => this.invalidate(session, reason),
       (session) => session.enforcement === "unverified" || this.health(session),
@@ -188,6 +198,7 @@ export class Operations {
   ): Operation {
     let session: Session | undefined;
     try {
+      this.store.assertHealthy();
       // Authentication can invalidate expired authority. Keep that durable change
       // outside the transaction whose failed admission must be rolled back.
       session = this.identity.authenticate(token, connection);
@@ -251,6 +262,7 @@ export class Operations {
     }
   }
   authorize(s: Session, tool: Tool, args: Record<string, any>) {
+    this.store.assertHealthy();
     check(
       s.status === "active" && s.enforcement === "enforced" && this.health(s),
       "enforcement_unhealthy",
@@ -323,6 +335,7 @@ export class Operations {
     return fresh;
   }
   validate(op: Operation) {
+    this.store.assertHealthy();
     const current = this.current(op),
       s = this.identity.session(op.session);
     check(
@@ -383,6 +396,8 @@ export class Operations {
     try {
       const result = await effect(controller.signal);
       this.store.transaction(() => {
+        if (this.store.fault)
+          this.invalidate(op.session, "required_audit_failed");
         op = this.current(op);
         op.result = result;
         if (op.invalidated) {
@@ -404,6 +419,8 @@ export class Operations {
       });
     } catch (error) {
       this.store.transaction(() => {
+        if (this.store.fault)
+          this.invalidate(op.session, "required_audit_failed");
         op = this.current(op);
         op.error = String(error);
         if (

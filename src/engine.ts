@@ -297,6 +297,9 @@ export class Engine {
     return {
       version: "0.1.0",
       platform: process.platform,
+      storageHealth: this.store.fault
+        ? { healthy: false, failure: this.store.fault }
+        : { healthy: true },
       repositories,
       sessions: this.store.list<Session>("session"),
       policies: repositories.map((r) => {
