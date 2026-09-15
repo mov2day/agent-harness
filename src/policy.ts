@@ -16,7 +16,7 @@ export const policySchema = z.object({
 }).strict();
 export type Policy = z.infer<typeof policySchema>;
 export interface PolicyRecord { id:string; policy:Policy; activated:boolean; created:number }
-export interface Effective { id:string; global:PolicyRecord; repository?:PolicyRecord; policy:Policy; rules:string[] }
+export interface Effective { repositoryId:string; id:string; global:PolicyRecord; repository?:PolicyRecord; policy:Policy; rules:string[] }
 export const defaultPolicy: Policy = {version:1,allowPaths:['**'],denyPaths:['.git/**','.env','.env.*','**/secrets/**'],tools:['read','artifact','delegate','review','compact'],commands:[],domains:[],deletion:false,maxSpecialists:4,maxDepth:2,revisionLimit:1,timeoutMs:60_000,humanGates:['implementation'],models:{}};
 const ceilings = ['maxSpecialists','maxDepth','revisionLimit','timeoutMs'] as const;
 export class Policies {
@@ -64,14 +64,15 @@ export class Policies {
     const local=required ? this.active(repository) : undefined;
     if(local) this.assertTightening(global.policy,local.policy);
     const policy=local?.policy ?? global.policy;
-    return {id:digest([global.id,local?.id ?? null]),global,repository:local,policy,rules:[`global:${global.id}`,...(local?[`repository:${local.id}`]:[])]};
+    return {repositoryId:repository,id:digest([global.id,local?.id ?? null]),global,repository:local,policy,rules:[`global:${global.id}`,...(local?[`repository:${local.id}`]:[])]};
   }
   path(e:Effective,path:string):boolean {
     check(path && !path.startsWith('/') && !path.includes('\\') && !path.includes('\0') && path.split('/').every(x=>x!=='.'&&x!=='..'&&x!==''),'invalid_path');
-    return [e.global,...(e.repository?[e.repository]:[])].every(r => r.policy.allowPaths.some(p=>matches(path,p)) && !r.policy.denyPaths.some(p=>matches(path,p)));
+    const nocase=this.store.get<{caseSensitive:boolean}>('repository',e.repositoryId)?.caseSensitive===false;
+    return [e.global,...(e.repository?[e.repository]:[])].every(r => r.policy.allowPaths.some(p=>matches(path,p,nocase)) && !r.policy.denyPaths.some(p=>matches(path,p,nocase))); 
   }
   validateModels(p:Policy, capabilities:Partial<Record<Role,Record<string,string[]>>>) {
     for(const [role,setting] of Object.entries(p.models)) check(capabilities[role as Role]?.[setting.model]?.includes(setting.reasoning),'unsupported_model',`Unsupported model/reasoning for ${role}`);
   }
 }
-export const matches = (path:string,glob:string) => minimatch(path,glob,{dot:true,nocase:false,nonegate:true,nocomment:true}) || (glob.endsWith('/**') && path===glob.slice(0,-3));
+export const matches = (path:string,glob:string,nocase=false) => minimatch(path,glob,{dot:true,nocase,nonegate:true,nocomment:true}) || (glob.endsWith('/**') && minimatch(path,glob.slice(0,-3),{dot:true,nocase,nonegate:true,nocomment:true}));

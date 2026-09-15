@@ -12,7 +12,9 @@
     "typecheck": "tsc --noEmit",
     "start": "node --import tsx src/cli.ts serve",
     "harness": "node --import tsx src/cli.ts",
-    "verify": "npm run typecheck && npm test && npm run build"
+    "verify": "npm run typecheck && npm test && npm run build",
+    "build:native": "node scripts/build-native.mjs",
+    "pretest": "node scripts/build-native.mjs"
   },
   "dependencies": {
     "minimatch": "^10.0.1",

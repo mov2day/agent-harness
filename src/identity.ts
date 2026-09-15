@@ -10,7 +10,7 @@ export interface Integration { id:string; secret:string; runtime:'opencode'|'cod
 export interface Capability { id:string; tokenHash:string; session:string; connection:string; repository:string; role:Scope['role']; generation:number; expires:number; revoked:boolean }
 export interface Registration { integration:string; repository:string; runtimeSession:string; connection:string; nonce:string }
 const registrationSchema=z.object({integration:z.string(),repository:z.string(),runtimeSession:z.string().min(1).max(256),connection:z.string().min(1).max(256),nonce:z.string()}).strict();
-const git=(root:string,args:string[])=>execFileSync('git',['-C',root,...args],{encoding:'utf8',env:{PATH:process.env.PATH,HOME:'/nonexistent',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null'},timeout:5000}).trim();
+const git=(root:string,args:string[])=>execFileSync('git',['-C',root,...args],{encoding:'utf8',stdio:['ignore','pipe','pipe'],env:{PATH:process.env.PATH,HOME:'/nonexistent',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null'},timeout:5000}).trim();
 export class Repositories {
   constructor(readonly store:Store) {}
   enroll(path:string):Repository {

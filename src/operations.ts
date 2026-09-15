@@ -1,0 +1,123 @@
+import { z } from 'zod';
+import { check, digest, hash, id, type Session, type Role, type Stage } from './core.js';
+import type { Store } from './store.js';
+import type { Identity, Capability } from './identity.js';
+import type { Policies } from './policy.js';
+import { DenialMonitor } from './monitoring.js';
+const path=z.string().min(1).max(2048);
+export const toolSchemas={
+  read:z.object({path}).strict(),
+  change:z.object({path,base:z.string().nullable(),content:z.string().max(2_000_000),approval:z.string()}).strict(),
+  delete:z.object({path,base:z.string(),approval:z.string()}).strict(),
+  rename:z.object({path,to:path,base:z.string(),approval:z.string()}).strict(),
+  research:z.object({url:z.string().url().max(4096)}).strict(),
+  execute:z.object({executable:z.string(),args:z.array(z.string()).max(128),env:z.record(z.string()),cwd:path,approval:z.string()}).strict(),
+  delegate:z.object({role:z.enum(['Researcher','Planner','Implementer','Reviewer','Verifier']),model:z.string().optional(),reasoning:z.string().optional()}).strict(),
+  artifact:z.object({kind:z.string(),content:z.string().max(2_000_000),dependencies:z.array(z.string()),trust:z.enum(['untrusted']),sources:z.array(z.string())}).strict(),
+  review:z.object({artifact:z.string(),findings:z.array(z.object({message:z.string(),blocking:z.boolean()}).strict())}).strict(),
+  compact:z.object({checkpoint:z.unknown()}).strict(),
+  learn:z.object({candidate:z.unknown()}).strict()
+};
+export type Tool=keyof typeof toolSchemas;
+const permissions:Record<Role,Tool[]>={Conductor:['delegate','artifact','compact'],Researcher:['read','research','artifact','compact'],Planner:['read','artifact','compact'],Implementer:['read','change','delete','rename','artifact','compact'],Reviewer:['read','review','artifact','compact'],Verifier:['read','execute','artifact','compact']};
+const toolStages:Partial<Record<Tool,Stage[]>>={research:['research'],change:['implementation'],delete:['implementation'],rename:['implementation'],execute:['execution','verification']};
+export interface Operation {id:string;key:string;requestHash:string;session:string;repository:string;generation:number;tool:Tool;args:Record<string,any>;policy:string;expires:number;status:'intent'|'running'|'admitted'|'completed'|'cancelled'|'failed'|'requires_reconciliation';invalidated?:{reason:string;time:number;outcome:'cancelled_without_effects'|'partially_completed'|'completed_before_invalidation'|'requires_reconciliation'};result?:unknown;error?:string;created:number}
+export interface ActionApproval {id:string;repository:string;session:string;action:string;policy:string;human:boolean;valid:boolean;dependencies:string[]}
+export class Operations {
+  readonly monitor:DenialMonitor;
+  private aborts=new Map<string,AbortController>();
+  private cancelHooks=new Map<string,()=>Promise<boolean>>();
+  constructor(readonly store:Store,readonly identity:Identity,readonly policies:Policies,private health:(session:Session)=>boolean) {
+    this.monitor=new DenialMonitor(store);
+    identity.hooks((session,reason)=>this.invalidate(session,reason),session=>session.enforcement==='unverified'||this.health(session),(session,expires)=>this.extend(session,expires));
+    policies.setInvalidator(repository=>{for(const s of store.list<Session>('session',repository).filter(s=>!s.parent&&s.status!=='terminated'))this.invalidate(s.session,'policy_changed');});
+  }
+  begin(token:string,connection:string,input:{tool:string;args:unknown;idempotencyKey:string}):Operation {
+    let session:Session|undefined;
+    try {return this.store.transaction(()=>{
+      session=this.identity.authenticate(token,connection);
+      check(input.idempotencyKey.length>0&&input.idempotencyKey.length<=128,'idempotency_key');
+      check(Object.hasOwn(toolSchemas,input.tool),'tool_unlisted');
+      const tool=input.tool as Tool,args=toolSchemas[tool].parse(input.args) as Record<string,any>,key=digest([session.session,input.idempotencyKey]),requestHash=digest({tool,args});
+      const existing=this.store.get<Operation>('operation',key);
+      if(existing){check(existing.requestHash===requestHash,'idempotency_conflict');return existing;}
+      this.authorize(session,tool,args);
+      const c=this.store.get<Capability>('capability',hash(token))!;
+      const operation:Operation={id:id(),key,requestHash,session:session.session,repository:session.repository,generation:session.generation,tool,args,policy:session.policy,expires:c.expires,status:'intent',created:this.store.clock.now()};
+      this.save(operation);this.store.audit('operation.intent',{id:operation.id,tool,requestHash,policy:operation.policy,rules:this.policies.effective(session.repository).rules},session.repository,session.session);return operation;
+    });} catch(error) {if(session)this.monitor.record(session,error instanceof Error?error.message:'denied');throw error;}
+  }
+  authorize(s:Session,tool:Tool,args:Record<string,any>) {
+    check(s.status==='active'&&s.enforcement==='enforced'&&this.health(s),'enforcement_unhealthy');
+    const e=this.policies.effective(s.repository);check(e.id===s.policy,'policy_changed');
+    check(permissions[s.role].includes(tool),'role_authority');check(e.policy.tools.includes(tool),'policy_tool_denied');
+    const root=this.identity.session(s.root);check(root.status==='active','root_inactive');
+    if(toolStages[tool])check(toolStages[tool]!.includes(root.stage),'wrong_stage');
+    if(args.path)check(this.policies.path(e,args.path),'path_denied');if(args.to)check(this.policies.path(e,args.to),'path_denied');
+    if(tool==='delete')check(e.policy.deletion,'deletion_disabled');
+    if(tool==='research'){const url=new URL(args.url);check(e.policy.domains.includes(url.hostname),'domain_denied');}
+    if(tool==='execute')check(e.policy.commands.some(c=>digest(c)===digest({executable:args.executable,args:args.args,env:args.env,cwd:args.cwd})),'command_denied');
+    if(['change','delete','rename','execute'].includes(tool)) {
+      const approval=this.store.get<ActionApproval>('action-approval',args.approval);
+      check(approval?.valid&&approval.repository===s.repository&&approval.session===s.root&&approval.policy===e.id&&approval.action===this.actionHash(tool,args),'review_required');
+      if(tool==='delete'||tool==='rename'||(tool==='change'&&e.policy.humanGates.includes('implementation')))check(approval.human,'human_approval_required');
+      for(const dependency of approval.dependencies)check(this.store.get<{valid:boolean}>('artifact',dependency)?.valid,'approval_dependency_stale');
+    }
+    return e;
+  }
+  actionHash(tool:string,args:Record<string,unknown>) {return digest({tool,args:{...args,approval:undefined}});}
+  save(op:Operation){this.store.put('operation',op.key,op,op.repository,op.session);}
+  current(op:Operation):Operation {const fresh=this.store.get<Operation>('operation',op.key);check(fresh,'operation_unknown');return fresh;}
+  validate(op:Operation) {
+    const current=this.current(op),s=this.identity.session(op.session);
+    check(!current.invalidated&&s.generation===current.generation&&current.expires>this.store.clock.now(),'operation_authority_lost');
+    check(!['cancelled','failed','completed','requires_reconciliation'].includes(current.status),'operation_terminal');
+    this.authorize(s,current.tool,current.args);return current;
+  }
+  async run(op:Operation,effect:(signal:AbortSignal)=>Promise<unknown>):Promise<Operation> {
+    if(op.status!=='intent')return op;
+    this.store.transaction(()=>{op=this.validate(op);check(op.status==='intent','operation_running');op.status='running';this.save(op);this.store.audit('operation.started',{id:op.id},op.repository,op.session);});
+    const controller=new AbortController();this.aborts.set(op.id,controller);
+    const timer=setTimeout(()=>this.invalidate(op.session,'operation_timeout'),Math.min(op.expires-this.store.clock.now(),this.policies.effective(op.repository).policy.timeoutMs));timer.unref();
+    try {const result=await effect(controller.signal);this.store.transaction(()=>{
+      op=this.current(op);op.result=result;
+      if(op.invalidated){op.status='requires_reconciliation';op.invalidated.outcome='partially_completed';}
+      else if(op.expires<=this.store.clock.now()){this.invalidate(op.session,'capability_expired');op=this.current(op);op.result=result;op.status='requires_reconciliation';}
+      else op.status='completed';
+      this.save(op);this.store.audit('operation.outcome',{id:op.id,status:op.status,invalidated:op.invalidated},op.repository,op.session);
+    });}catch(error){this.store.transaction(()=>{
+      op=this.current(op);op.error=String(error);
+      if(op.status==='admitted'||op.invalidated?.outcome==='requires_reconciliation'){op.status='requires_reconciliation';}
+      else {op.status=op.invalidated?'cancelled':'failed';if(op.invalidated)op.invalidated.outcome='cancelled_without_effects';}
+      this.save(op);this.store.audit('operation.outcome',{id:op.id,status:op.status,error:op.error,invalidated:op.invalidated},op.repository,op.session);
+    });}finally{clearTimeout(timer);this.aborts.delete(op.id);this.cancelHooks.delete(op.id);}
+    return this.current(op);
+  }
+  /** No await between final admission and the synchronous filesystem effect. Invalidation uses the same event-loop writer. */
+  commit<T>(op:Operation,effect:()=>T):T {
+    this.store.transaction(()=>{const current=this.validate(op);current.status='admitted';this.save(current);this.store.audit('operation.mutation_admitted',{id:op.id},op.repository,op.session);});
+    return effect();
+  }
+  onCancel(op:Operation,fn:()=>Promise<boolean>){this.cancelHooks.set(op.id,fn);}
+  invalidate(sessionId:string,reason:string) {
+    const cancelling:Operation[]=[];
+    this.store.transaction(()=>{
+      const all=this.store.list<Session>('session'),affected=new Set([sessionId]);
+      for(let changed=true;changed;){changed=false;for(const s of all)if(s.parent&&affected.has(s.parent)&&!affected.has(s.session)){affected.add(s.session);changed=true;}}
+      for(const s of all.filter(s=>affected.has(s.session))){s.generation++;s.status=reason==='session_terminated'?'terminated':'paused';this.identity.saveSession(s);this.identity.revokeTokens(s.session);
+        for(const op of this.store.list<Operation>('operation',s.repository,s.session)){
+          if(op.invalidated)continue;
+          if(op.status==='completed'){op.invalidated={reason,time:this.store.clock.now(),outcome:'completed_before_invalidation'};this.save(op);continue;}
+          if(['failed','cancelled'].includes(op.status))continue;
+          const noEffects=op.status==='intent';op.invalidated={reason,time:this.store.clock.now(),outcome:noEffects?'cancelled_without_effects':'requires_reconciliation'};op.status=noEffects?'cancelled':'requires_reconciliation';this.save(op);cancelling.push(op);
+        }
+        this.store.audit('authority.invalidated',{reason,generation:s.generation},s.repository,s.session);
+      }
+    });
+    for(const op of cancelling){this.aborts.get(op.id)?.abort(new Error(reason));const cancel=this.cancelHooks.get(op.id);if(cancel)void cancel().then(ok=>{if(!ok)this.store.audit('operation.cancellation_failed',{id:op.id},op.repository,op.session);},error=>this.store.audit('operation.cancellation_failed',{id:op.id,error:String(error)},op.repository,op.session));}
+  }
+  extend(s:Session,expires:number){for(const op of this.store.list<Operation>('operation',s.repository,s.session)){if(!['intent','running'].includes(op.status)||op.invalidated)continue;this.authorize(s,op.tool,op.args);op.expires=expires;this.save(op);}}
+  sweep(){for(const op of this.store.list<Operation>('operation'))if(['intent','running','admitted'].includes(op.status)&&op.expires<=this.store.clock.now())this.invalidate(op.session,'capability_expired');}
+  recover(){for(const op of this.store.list<Operation>('operation'))if(['intent','running','admitted'].includes(op.status))this.invalidate(op.session,'engine_restarted');}
+  reconcile(key:string,outcome:string,evidence:string){this.store.transaction(()=>{const op=this.store.get<Operation>('operation',key);check(op?.status==='requires_reconciliation','reconciliation_not_needed');check(outcome.length>0&&evidence.length>0,'reconciliation_evidence');op.result={outcome,evidence};op.status='cancelled';this.save(op);this.store.audit('operation.reconciled',{id:op.id,outcome,evidence},op.repository,op.session);});}
+}
