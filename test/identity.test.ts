@@ -95,6 +95,8 @@ test("capability: exact expiry, renewal rotation, revoked tokens and failures", 
   const f = fixture();
   try {
     const registered = f.register();
+    registered.session.enforcement = "enforced";
+    f.identity.saveSession(registered.session);
     f.clock.tick(239_999);
     assert.equal(
       f.identity.authenticate(registered.capability, f.binding.connection).role,

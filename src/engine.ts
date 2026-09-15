@@ -17,6 +17,7 @@ import { Operations } from "./operations.js";
 import { NativeFiles } from "./files.js";
 import { Gateway } from "./gateway.js";
 import { CommandWorkers } from "./workers.js";
+import { Snapshots } from "./snapshots.js";
 import { Artifacts, Workflow } from "./workflow.js";
 import { Compaction } from "./compaction.js";
 import { Learning } from "./learning.js";
@@ -42,6 +43,7 @@ export class Engine {
   readonly compaction: Compaction;
   readonly learning: Learning;
   readonly workers?: CommandWorkers;
+  readonly snapshots: Snapshots;
   private lock: string;
   private lockHandle: number;
   private sweep: ReturnType<typeof setInterval>;
@@ -99,6 +101,13 @@ export class Engine {
       this.files = new NativeFiles(options.helper);
       this.gateway = new Gateway(this.store, this.operations);
       this.artifacts = new Artifacts(this.store, this.identity);
+      this.snapshots = new Snapshots(
+        this.store,
+        this.identity,
+        this.policies,
+        this.files,
+        this.artifacts,
+      );
       this.workflow = new Workflow(
         this.store,
         this.identity,
@@ -116,13 +125,22 @@ export class Engine {
       );
       this.learning = new Learning(this.store, this.artifacts, this.operations);
       if (options.workerImage)
-        this.workers = new CommandWorkers(this.operations, options.workerImage);
+        this.workers = new CommandWorkers(
+          this.operations,
+          options.workerImage,
+          this.snapshots,
+        );
       if (!this.store.get("meta", "initialized"))
         this.store.transaction(() => {
           this.policies.publish("global", defaultPolicy, true);
           this.store.put("meta", "initialized", { version: 1 });
         });
       this.operations.recover();
+      void this.workers
+        ?.recover()
+        .catch((error) =>
+          process.stderr.write(`Worker recovery failed: ${String(error)}\n`),
+        );
       this.sweep = setInterval(() => {
         try {
           this.operations.sweep();
@@ -195,7 +213,7 @@ export class Engine {
           const artifact = this.artifacts.create(scope, {
             kind: "execution",
             content: JSON.stringify(result),
-            dependencies: [],
+            dependencies: [op.args.snapshot],
             sources: [],
           });
           return {
@@ -215,6 +233,8 @@ export class Engine {
           );
         case "artifact": {
           switch (op.args.action) {
+            case "snapshot":
+              return this.snapshots.capture(scope);
             case "get":
               return this.artifacts.get(scope, op.args.id);
             case "evidence":

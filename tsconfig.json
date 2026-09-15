@@ -1,9 +1,25 @@
 {
   "compilerOptions": {
-    "target": "ES2023", "module": "NodeNext", "moduleResolution": "NodeNext",
-    "strict": true, "noUncheckedIndexedAccess": true, "esModuleInterop": true,
-    "resolveJsonModule": true, "skipLibCheck": true, "jsx": "react-jsx",
-    "lib": ["ES2023", "DOM"], "noEmit": true
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
+    "noEmit": true
   },
-  "include": ["src", "web", "test", "scripts"]
+  "include": [
+    "src",
+    "web",
+    "test",
+    "scripts",
+    "conformance"
+  ]
 }

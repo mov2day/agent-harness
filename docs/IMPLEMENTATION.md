@@ -5,8 +5,8 @@ The normative specification is [plan.MD](plan.MD). This ledger distinguishes cod
 | Phase | Work | Status |
 | --- | --- | --- |
 | 1 | Policy, filesystem enrollment, pairing, atomic registration, scoped capabilities | Implemented; targeted tests pass |
-| 2 | OpenCode bridge, runtime profiles, containment and alternate-path rejection | Implemented contracts; live runtime certification blocked by unavailable Docker daemon |
-| 3 | Operation leases, native file broker, gateway, isolated execution, cancellation | Implemented; macOS helper and 17 targeted tests pass; live Linux/container race evidence pending |
+| 2 | OpenCode bridge, runtime profiles, containment and alternate-path rejection | Contracts implemented; dedicated container VM available; full OpenCode runtime transport and certification pending |
+| 3 | Operation leases, native file broker, gateway, isolated execution, cancellation | Native file broker, immutable source snapshots and worker protocol implemented; real container isolation and cancellation pass; Linux helper and full gateway evidence pending |
 | 4 | Specialist admission, artifacts, review workflow and dependency graph | Implemented; 22 tests pass, including revision boundaries and diamond invalidation |
 | 5 | Authoritative checkpoints, provenance, evaluated learning and rollback | Implemented; 28 tests pass for fidelity, trust, evaluation gates, privacy and rollback |
 | 6 | Authenticated React controls, alerts, durable recovery, conformance and release tooling | Controls and API implemented; browser sign-in verified; 37 tests pass; release tooling in progress |

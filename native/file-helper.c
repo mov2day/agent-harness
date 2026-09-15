@@ -64,6 +64,7 @@ int main(int argc,char **argv){
   int root=open(argv[1],O_RDONLY|O_DIRECTORY|O_NOFOLLOW|O_CLOEXEC);struct stat rs;if(root<0||fstat(root,&rs))deny("open root");
   if((uint64_t)rs.st_dev!=strtoull(argv[2],NULL,10)||(uint64_t)rs.st_ino!=strtoull(argv[3],NULL,10))deny("root identity");
   struct chain c=resolve_parent(root,argv[5]);int parent=c.fd[c.count-1];int fd=leaf(&c);
+  if(!strcmp(argv[4],"metadata")){if(fd<0)return 44;struct stat st;if(fstat(fd,&st))deny("metadata");revalidate(&c,root,argv[1]);printf("{\"mode\":%u,\"size\":%lld,\"device\":%llu,\"inode\":%llu}\n",(unsigned)(st.st_mode&0777),(long long)st.st_size,(unsigned long long)st.st_dev,(unsigned long long)st.st_ino);return 0;}
   if(!strcmp(argv[4],"read")){if(fd<0)return 44;revalidate(&c,root,argv[1]);copy(fd,STDOUT_FILENO);return 0;}
   expected(fd,argv[6]);
 #ifdef HARNESS_TESTING

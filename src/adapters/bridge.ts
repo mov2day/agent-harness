@@ -120,6 +120,51 @@ export class IntegrationBridge {
     this.accept(result);
     return this.session!;
   }
+  async registerSpecialist(session: string) {
+    const challenge = await this.transport.request(
+      "/v1/specialists/challenge",
+      {
+        integration: this.credential.id,
+        session,
+        connection: this.binding.connection,
+      },
+    );
+    const { expires: _expires, ...binding } = challenge;
+    check(
+      binding.runtimeSession === this.binding.runtimeSession &&
+        binding.repository === this.binding.repository,
+      "specialist_binding",
+    );
+    let result;
+    try {
+      result = await this.transport.request("/v1/specialists/register", {
+        binding,
+        proof: sign(this.credential.secret, {
+          action: "specialist-registration",
+          binding,
+        }),
+      });
+    } catch (error) {
+      const time = Date.now();
+      const recovered = await this.transport.request(
+        "/v1/integrations/status",
+        {
+          binding,
+          time,
+          proof: sign(this.credential.secret, {
+            action: "registration-status",
+            binding,
+            time,
+          }),
+        },
+      );
+      if (!recovered.registered) throw error;
+      result = recovered;
+    }
+    this.session = result.session;
+    this.accept(result);
+    return this.session!;
+  }
   private accept(result: { capability: string; expires: number }) {
     this.capability = result.capability;
     this.expires = result.expires;

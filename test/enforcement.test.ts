@@ -226,6 +226,7 @@ test("authority: reviewed arguments, roles, paths, stages, exact commands, envir
       () =>
         f.begin("execute", {
           executable: "/bin/sh",
+          snapshot: "fixture-snapshot",
           args: ["-c", "rm -rf src"],
           env: {},
           cwd: "src",
@@ -269,6 +270,7 @@ test("authority: reviewed arguments, roles, paths, stages, exact commands, envir
           "execute",
           v.approve("execute", {
             executable: "/bin/echo",
+            snapshot: "fixture-snapshot",
             args: ["ok", "; rm"],
             env: {},
             cwd: "src",

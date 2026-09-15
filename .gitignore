@@ -6,3 +6,5 @@ coverage/
 native/file-helper
 .DS_Store
 native/file-helper-test
+__pycache__/
+*.pyc

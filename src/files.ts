@@ -28,7 +28,8 @@ export class NativeFiles {
       { maxBuffer: 2_100_000, timeout: 10_000 },
     );
     check(!result.error, "native_helper_unavailable", String(result.error));
-    if (op === "read" && result.status === 44) return null;
+    if ((op === "read" || op === "metadata") && result.status === 44)
+      return null;
     check(
       result.status === 0,
       "filesystem_rejected",
@@ -38,6 +39,13 @@ export class NativeFiles {
   }
   read(repo: Repository, path: string) {
     return this.invoke(repo, "read", path);
+  }
+  metadata(
+    repo: Repository,
+    path: string,
+  ): { mode: number; size: number; device: number; inode: number } | null {
+    const result = this.invoke(repo, "metadata", path);
+    return result === null ? null : JSON.parse(result.toString("utf8"));
   }
   mutate(repo: Repository, op: Operation, operations: Operations) {
     const current = this.read(repo, op.args.path),

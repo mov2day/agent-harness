@@ -228,6 +228,10 @@ export class Identity {
     this.repositories.verify(binding.repository);
     const policy = this.policies.effective(binding.repository);
     return this.store.transaction(() => {
+      check(
+        !this.store.get("specialist-nonce", binding.nonce),
+        "nonce_purpose",
+      );
       const nonce = this.store.db
         .prepare("SELECT * FROM nonces WHERE id=?")
         .get(binding.nonce);
@@ -269,7 +273,7 @@ export class Identity {
         depth: 0,
         status: "active",
         stage: "research",
-        skills: {},
+        skills: this.approvedSkills(binding.repository),
         policy: policy.id,
         enforcement: "unverified",
         created: this.store.clock.now(),
@@ -287,6 +291,137 @@ export class Identity {
         sessionId,
       );
       return { session, ...token };
+    });
+  }
+  approvedSkills(repository: string): Record<string, string> {
+    const loaded: Record<string, string> = {};
+    for (const skill of this.store.list<{
+      id: string;
+      version: string;
+      revoked: boolean;
+      scope: string;
+    }>("skill")) {
+      if (
+        !skill.revoked &&
+        (skill.scope === repository || skill.scope === "global")
+      )
+        loaded[skill.scope === "global" ? `global/${skill.id}` : skill.id] =
+          skill.version;
+    }
+    return loaded;
+  }
+  specialistChallenge(input: unknown) {
+    const request = z
+      .object({
+        integration: z.string(),
+        session: z.string(),
+        connection: z.string(),
+      })
+      .strict()
+      .parse(input);
+    const child = this.session(request.session);
+    check(
+      child.parent &&
+        child.role !== "Conductor" &&
+        child.integration === request.integration &&
+        child.connection === request.connection,
+      "specialist_binding",
+    );
+    check(
+      child.status === "active" && this.session(child.root).status === "active",
+      "session_inactive",
+    );
+    return this.store.transaction(() => {
+      check(
+        !this.store.get("specialist-claimed", child.session),
+        "specialist_already_claimed",
+      );
+      const challenge = this.challenge({
+        integration: child.integration,
+        repository: child.repository,
+        runtimeSession: child.runtimeSession,
+        connection: child.connection,
+      });
+      this.store.put(
+        "specialist-nonce",
+        challenge.nonce,
+        { session: child.session },
+        child.repository,
+        child.session,
+      );
+      return challenge;
+    });
+  }
+  claimSpecialist(input: unknown, proof: string) {
+    const binding = registrationSchema.parse(input),
+      integration = this.integration(binding.integration);
+    check(
+      equal(
+        sign(integration.secret, {
+          action: "specialist-registration",
+          binding,
+        }),
+        proof,
+      ),
+      "registration_proof",
+    );
+    this.repositories.verify(binding.repository);
+    return this.store.transaction(() => {
+      const assignment = this.store.get<{ session: string }>(
+        "specialist-nonce",
+        binding.nonce,
+      );
+      check(assignment, "nonce_purpose");
+      const child = this.session(assignment.session);
+      check(
+        child.parent &&
+          child.status === "active" &&
+          this.session(child.root).status === "active",
+        "session_inactive",
+      );
+      check(
+        child.integration === binding.integration &&
+          child.repository === binding.repository &&
+          child.runtimeSession === binding.runtimeSession &&
+          child.connection === binding.connection,
+        "specialist_binding",
+      );
+      check(
+        child.policy === this.policies.effective(child.repository).id,
+        "policy_changed",
+      );
+      check(
+        !this.store.get("specialist-claimed", child.session),
+        "specialist_already_claimed",
+      );
+      const consumed = this.store.db
+        .prepare(
+          "UPDATE nonces SET used=1,registration=? WHERE id=? AND integration=? AND repository=? AND runtime_session=? AND connection=? AND used=0 AND expires>?",
+        )
+        .run(
+          child.session,
+          binding.nonce,
+          binding.integration,
+          binding.repository,
+          binding.runtimeSession,
+          binding.connection,
+          this.store.clock.now(),
+        );
+      check(consumed.changes === 1, "nonce_used_or_expired");
+      this.store.put(
+        "specialist-claimed",
+        child.session,
+        { nonce: binding.nonce },
+        child.repository,
+        child.session,
+      );
+      this.store.audit(
+        "specialist.registered",
+        { session: child.session, role: child.role },
+        child.repository,
+        child.session,
+      );
+      return { session: child, ...this.issue(child) };
     });
   }
   status(binding: Registration, time: number, proof: string) {
@@ -384,6 +519,10 @@ export class Identity {
     try {
       return this.store.transaction(() => {
         const s = this.authenticate(token, connection);
+        check(
+          s.enforcement === "enforced" && this.revalidate(s),
+          "enforcement_unhealthy",
+        );
         const c = this.store.get<Capability>("capability", hash(token))!;
         check(
           c.expires - this.store.clock.now() <= 60_000,
@@ -394,11 +533,15 @@ export class Identity {
           check(
             this.store.get<{ version: string; revoked: boolean }>(
               "skill",
-              `${s.repository}:${skill}`,
+              skill.startsWith("global/")
+                ? `global:${skill.slice(7)}`
+                : `${s.repository}:${skill}`,
             )?.version === version &&
               !this.store.get<{ revoked: boolean }>(
                 "skill",
-                `${s.repository}:${skill}`,
+                skill.startsWith("global/")
+                  ? `global:${skill.slice(7)}`
+                  : `${s.repository}:${skill}`,
               )?.revoked,
             "skill_revoked",
           );

@@ -34,6 +34,7 @@ export const toolSchemas = {
       args: z.array(z.string()).max(128),
       env: z.record(z.string()),
       cwd: path,
+      snapshot: z.string(),
       approval: z.string(),
     })
     .strict(),
@@ -51,6 +52,7 @@ export const toolSchemas = {
     })
     .strict(),
   artifact: z.union([
+    z.object({ action: z.literal("snapshot") }).strict(),
     z
       .object({
         action: z.literal("create").optional(),
@@ -138,6 +140,12 @@ export interface Operation {
   };
   result?: unknown;
   error?: string;
+  worker?: {
+    container: string;
+    image: string;
+    snapshot: string;
+    admitted: boolean;
+  };
   created: number;
 }
 export interface ActionApproval {
@@ -180,6 +188,9 @@ export class Operations {
   ): Operation {
     let session: Session | undefined;
     try {
+      // Authentication can invalidate expired authority. Keep that durable change
+      // outside the transaction whose failed admission must be rolled back.
+      session = this.identity.authenticate(token, connection);
       return this.store.transaction(() => {
         session = this.identity.authenticate(token, connection);
         check(
@@ -348,14 +359,27 @@ export class Operations {
     });
     const controller = new AbortController();
     this.aborts.set(op.id, controller);
-    const timer = setTimeout(
-      () => this.invalidate(op.session, "operation_timeout"),
-      Math.min(
-        op.expires - this.store.clock.now(),
-        this.policies.effective(op.repository).policy.timeoutMs,
-      ),
-    );
-    timer.unref();
+    const deadline =
+      op.created + this.policies.effective(op.repository).policy.timeoutMs;
+    let timer: ReturnType<typeof setTimeout>;
+    const armDeadline = () => {
+      const current = this.current(op),
+        now = this.store.clock.now();
+      if (current.invalidated) return;
+      if (now >= deadline || now >= current.expires) {
+        this.invalidate(
+          op.session,
+          now >= deadline ? "operation_timeout" : "capability_expired",
+        );
+        return;
+      }
+      timer = setTimeout(
+        armDeadline,
+        Math.max(1, Math.min(deadline, current.expires) - now),
+      );
+      timer.unref();
+    };
+    armDeadline();
     try {
       const result = await effect(controller.signal);
       this.store.transaction(() => {
@@ -384,6 +408,7 @@ export class Operations {
         op.error = String(error);
         if (
           op.status === "admitted" ||
+          op.worker ||
           op.invalidated?.outcome === "requires_reconciliation"
         ) {
           op.status = "requires_reconciliation";
@@ -406,7 +431,7 @@ export class Operations {
         );
       });
     } finally {
-      clearTimeout(timer);
+      clearTimeout(timer!);
       this.aborts.delete(op.id);
       this.cancelHooks.delete(op.id);
     }
@@ -514,7 +539,10 @@ export class Operations {
       s.repository,
       s.session,
     )) {
-      if (!["intent", "running"].includes(op.status) || op.invalidated)
+      if (
+        !["intent", "running", "admitted"].includes(op.status) ||
+        op.invalidated
+      )
         continue;
       this.authorize(s, op.tool, op.args);
       op.expires = expires;
@@ -522,6 +550,21 @@ export class Operations {
     }
   }
   sweep() {
+    for (const session of this.store.list<Session>("session")) {
+      if (session.status !== "active") continue;
+      const capabilities = this.store.list<Capability>(
+        "capability",
+        session.repository,
+        session.session,
+      );
+      if (
+        capabilities.length &&
+        !capabilities.some(
+          (c) => !c.revoked && c.expires > this.store.clock.now(),
+        )
+      )
+        this.invalidate(session.session, "capability_expired");
+    }
     for (const op of this.store.list<Operation>("operation"))
       if (
         ["intent", "running", "admitted"].includes(op.status) &&

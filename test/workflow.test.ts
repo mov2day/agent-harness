@@ -222,3 +222,54 @@ test("change approvals require exact reviewed changes and cannot authorize unrel
     f.close();
   }
 });
+
+test("specialists: trusted bridge claims engine-assigned role once with a separate connection", async () => {
+  const f = setup();
+  try {
+    const assignment = f.workflow.admit(f.root, "Implementer");
+    assert.equal("capability" in assignment, false);
+    assert.notEqual(assignment.session.connection, f.root.connection);
+    const challenge = f.identity.specialistChallenge({
+      integration: f.integration.id,
+      session: assignment.session.session,
+      connection: assignment.session.connection,
+    });
+    const { expires, ...binding } = challenge;
+    const { sign } = await import("../src/core.js");
+    assert.throws(
+      () => f.identity.register(binding, sign(f.integration.secret, binding)),
+      /nonce_purpose/,
+    );
+    const proof = sign(f.integration.secret, {
+      action: "specialist-registration",
+      binding,
+    });
+    const results = await Promise.allSettled(
+      Array.from({ length: 8 }, () =>
+        Promise.resolve().then(() =>
+          f.identity.claimSpecialist(binding, proof),
+        ),
+      ),
+    );
+    assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+    const registered = (
+      results.find((r) => r.status === "fulfilled") as PromiseFulfilledResult<
+        ReturnType<typeof f.identity.claimSpecialist>
+      >
+    ).value;
+    assert.equal(
+      f.identity.authenticate(
+        registered.capability,
+        assignment.session.connection,
+      ).role,
+      "Implementer",
+    );
+    assert.throws(
+      () => f.identity.authenticate(registered.capability, f.root.connection),
+      /capability_scope/,
+    );
+    assert.equal(f.store.list<Session>("session").length, 2);
+  } finally {
+    f.close();
+  }
+});

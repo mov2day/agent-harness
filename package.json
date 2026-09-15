@@ -15,8 +15,9 @@
     "verify": "npm run typecheck && npm test && npm run build",
     "build:native": "node scripts/build-native.mjs",
     "pretest": "node scripts/build-native.mjs --test",
-    "format": "prettier --write src web test scripts",
-    "format:check": "prettier --check src web test scripts"
+    "format": "prettier --write src web test scripts conformance",
+    "format:check": "prettier --check src web test scripts conformance",
+    "test:workers:live": "node scripts/build-native.mjs && node --import tsx --test --test-reporter=spec conformance/live/workers.test.ts"
   },
   "dependencies": {
     "minimatch": "^10.0.1",

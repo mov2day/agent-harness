@@ -281,7 +281,15 @@ export function createEngineServer(
         }
       } else if (url.pathname === "/v1/integrations/challenge")
         result = engine.identity.challenge(data);
-      else if (url.pathname === "/v1/integrations/register") {
+      else if (url.pathname === "/v1/specialists/challenge")
+        result = engine.identity.specialistChallenge(data);
+      else if (url.pathname === "/v1/specialists/register") {
+        const d = z
+          .object({ binding: z.unknown(), proof: z.string() })
+          .strict()
+          .parse(data);
+        result = engine.identity.claimSpecialist(d.binding, d.proof);
+      } else if (url.pathname === "/v1/integrations/register") {
         const d = z
           .object({ binding: z.unknown(), proof: z.string() })
           .strict()
