@@ -573,9 +573,14 @@ export class Operations {
         this.invalidate(op.session, "capability_expired");
   }
   recover() {
-    for (const op of this.store.list<Operation>("operation"))
-      if (["intent", "running", "admitted"].includes(op.status))
-        this.invalidate(op.session, "engine_restarted");
+    // A process restart loses live adapter state and cancellation handles.
+    // Retained capabilities cannot prove a clean runtime continuation.
+    for (const session of this.store.list<Session>("session"))
+      if (!session.parent && session.status !== "terminated")
+        this.invalidate(session.session, "engine_restarted");
+    this.store.transaction(() => {
+      this.store.db.prepare("UPDATE nonces SET used=1 WHERE used=0").run();
+    });
   }
   reconcile(key: string, outcome: string, evidence: string) {
     this.store.transaction(() => {

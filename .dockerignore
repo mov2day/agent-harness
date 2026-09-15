@@ -1,0 +1,10 @@
+.git
+node_modules
+dist
+coverage
+.harness
+*.sqlite*
+native/file-helper
+native/file-helper-test
+**/__pycache__
+.DS_Store

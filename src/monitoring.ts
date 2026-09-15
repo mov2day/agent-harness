@@ -13,7 +13,9 @@ export interface Alert {
   acknowledged: boolean;
 }
 export class DenialMonitor {
-  constructor(readonly store: Store) {}
+  constructor(readonly store: Store) {
+    store.recoverDenialClock();
+  }
   record(scope: Scope, rule: string) {
     return this.store.transaction(() => {
       const now = this.store.clock.now(),

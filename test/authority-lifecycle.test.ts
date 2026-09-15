@@ -67,6 +67,32 @@ test("authority lifecycle: idle capabilities expire and unverified health cannot
     g.close();
   }
 });
+test("authority lifecycle: restart revokes idle sessions and unredeemed challenges", () => {
+  const f = setup();
+  try {
+    const challenge = f.identity.challenge({
+      ...f.binding,
+      runtimeSession: "not-yet-registered",
+    });
+    f.operations.recover();
+    assert.equal(
+      f.identity.session(f.registration.session.session).status,
+      "paused",
+    );
+    assert.throws(
+      () => f.identity.authenticate(f.token, f.binding.connection),
+      /capability_invalid/,
+    );
+    assert.equal(
+      f.store.db
+        .prepare("SELECT used FROM nonces WHERE id=?")
+        .get(challenge.nonce)!.used,
+      1,
+    );
+  } finally {
+    f.close();
+  }
+});
 test("authority lifecycle: successful renewal extends a running lease without broadening actions", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const f = setup();

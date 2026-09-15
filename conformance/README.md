@@ -20,3 +20,14 @@ Set `DOCKER_CONTEXT` when using a dedicated VM. The suite requires an actual con
 - Full local suite: 49 tests passed before the additional cleanup-failure test; the nine affected lifecycle/snapshot/worker tests then passed. Type checking and production build passed.
 
 This record reports observations, not independent approval or a release certificate.
+
+## Linux native verification
+
+`Dockerfile.linux` builds the full source/test environment on a pinned Node 22 Debian base. It copies the source into the VM and runs as the unprivileged `node` user. It does not mount the host repository.
+
+```sh
+docker build -f conformance/Dockerfile.linux -t agent-harness-linux-tests:local .
+docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges agent-harness-linux-tests:local
+```
+
+On 2026-09-15 the Linux arm64 image `9658938cc789` passed type checking, all 50 tests, and the production build. This includes actual `openat2` helper execution and adversarial namespace-race fixtures. The additional restart-clock tests were added afterward and verified locally; this earlier Linux result does not cover them.

@@ -2,12 +2,25 @@ import { DatabaseSync } from "node:sqlite";
 import { chmodSync, mkdirSync, lstatSync } from "node:fs";
 import { dirname } from "node:path";
 import { check, id, type Clock, EngineClock } from "./core.js";
+import {
+  recoveryClockSource,
+  recoveryElapsed,
+  type ClockCheckpoint,
+  type RecoveryClockSource,
+} from "./recovery-clock.js";
 
 export class Store {
   readonly db: DatabaseSync;
   readonly clock: Clock;
   private inTransaction = false;
-  constructor(path: string, clock?: Clock) {
+  private previousClock?: ClockCheckpoint;
+  private recoverySource?: RecoveryClockSource;
+  private denialClockRecovered = false;
+  constructor(
+    path: string,
+    clock?: Clock,
+    recoverySource?: RecoveryClockSource,
+  ) {
     if (path !== ":memory:") {
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
       check(!lstatSync(dirname(path)).isSymbolicLink(), "storage_symlink");
@@ -23,9 +36,42 @@ export class Store {
       CREATE TABLE IF NOT EXISTS denials (id TEXT PRIMARY KEY, time INTEGER NOT NULL, repository TEXT NOT NULL, session TEXT NOT NULL, root TEXT NOT NULL, rule TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS denial_time ON denials(time);
     `);
-    this.clock =
-      clock ??
-      new EngineClock(this.get<{ time: number }>("meta", "clock")?.time);
+    this.previousClock = this.get<ClockCheckpoint>("meta", "clock");
+    this.recoverySource =
+      recoverySource ?? (clock ? undefined : recoveryClockSource());
+    this.clock = clock ?? new EngineClock(this.previousClock?.time);
+  }
+  private clockCheckpoint(): ClockCheckpoint {
+    return {
+      time: this.clock.now(),
+      ...(this.recoverySource
+        ? {
+            wall: this.recoverySource.wall(),
+            uptime: this.recoverySource.uptime(),
+            boot: this.recoverySource.boot,
+          }
+        : {}),
+    };
+  }
+  recoverDenialClock() {
+    if (this.denialClockRecovered) return;
+    this.denialClockRecovered = true;
+    if (!this.previousClock || !this.recoverySource) return;
+    const current = this.clockCheckpoint(),
+      previous = this.previousClock,
+      recovery = recoveryElapsed(previous, current),
+      shift = current.time - previous.time - recovery.elapsed;
+    this.transaction(() => {
+      this.db.prepare("UPDATE denials SET time=time+?").run(shift);
+      if (recovery.uncertain)
+        this.audit("monitor.clock_recovered", {
+          previous,
+          current,
+          elapsed: recovery.elapsed,
+          reason:
+            "Recent denial ages retained conservatively after clock or boot change",
+        });
+    });
   }
   get<T>(kind: string, key: string): T | undefined {
     const row = this.db
@@ -88,7 +134,7 @@ export class Store {
         "async_transaction",
         "Transactions cannot contain asynchronous effects",
       );
-      this.put("meta", "clock", { time: this.clock.now() });
+      this.put("meta", "clock", this.clockCheckpoint());
       this.db.exec("COMMIT");
       return result;
     } catch (error) {
