@@ -33,6 +33,7 @@ export const policySchema = z
         "review",
         "compact",
         "learn",
+        "model",
       ]),
     ),
     commands: z.array(
@@ -90,7 +91,7 @@ export const defaultPolicy: Policy = {
   version: 1,
   allowPaths: ["**"],
   denyPaths: [".git/**", ".env", ".env.*", "**/secrets/**"],
-  tools: ["read", "artifact", "delegate", "review", "compact"],
+  tools: ["read", "artifact", "delegate", "review", "compact", "model"],
   commands: [],
   domains: [],
   deletion: false,

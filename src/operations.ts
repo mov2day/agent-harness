@@ -12,8 +12,10 @@ import type { Store } from "./store.js";
 import type { Identity, Capability } from "./identity.js";
 import type { Policies } from "./policy.js";
 import { DenialMonitor } from "./monitoring.js";
+import { modelRequestSchema } from "./model-channel.js";
 const path = z.string().min(1).max(2048);
 export const toolSchemas = {
+  model: z.object({ request: modelRequestSchema }).strict(),
   read: z.object({ path }).strict(),
   change: z
     .object({
@@ -96,12 +98,20 @@ export const toolSchemas = {
 };
 export type Tool = keyof typeof toolSchemas;
 const permissions: Record<Role, Tool[]> = {
-  Conductor: ["delegate", "artifact", "compact", "learn"],
-  Researcher: ["read", "research", "artifact", "compact"],
-  Planner: ["read", "artifact", "compact"],
-  Implementer: ["read", "change", "delete", "rename", "artifact", "compact"],
-  Reviewer: ["read", "review", "artifact", "compact", "learn"],
-  Verifier: ["read", "execute", "artifact", "compact"],
+  Conductor: ["delegate", "artifact", "compact", "learn", "model"],
+  Researcher: ["read", "research", "artifact", "compact", "model"],
+  Planner: ["read", "artifact", "compact", "model"],
+  Implementer: [
+    "read",
+    "change",
+    "delete",
+    "rename",
+    "artifact",
+    "compact",
+    "model",
+  ],
+  Reviewer: ["read", "review", "artifact", "compact", "learn", "model"],
+  Verifier: ["read", "execute", "artifact", "compact", "model"],
 };
 const toolStages: Partial<Record<Tool, Stage[]>> = {
   research: ["research"],
@@ -271,6 +281,14 @@ export class Operations {
     check(e.id === s.policy, "policy_changed");
     check(permissions[s.role].includes(tool), "role_authority");
     check(e.policy.tools.includes(tool), "policy_tool_denied");
+    if (tool === "model")
+      check(
+        s.model &&
+          args.request.model === s.model.model &&
+          (!args.request.reasoning_effort ||
+            args.request.reasoning_effort === s.model.reasoning),
+        "model_override_denied",
+      );
     const root = this.identity.session(s.root);
     check(root.status === "active", "root_inactive");
     if (toolStages[tool])

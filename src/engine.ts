@@ -21,6 +21,7 @@ import { Snapshots } from "./snapshots.js";
 import { Artifacts, Workflow } from "./workflow.js";
 import { Compaction } from "./compaction.js";
 import { Learning } from "./learning.js";
+import { ModelChannel } from "./model-channel.js";
 import { check, id, type Clock, type Session } from "./core.js";
 export interface EngineOptions {
   state: string;
@@ -38,6 +39,7 @@ export class Engine {
   readonly operations: Operations;
   readonly files: NativeFiles;
   readonly gateway: Gateway;
+  readonly models: ModelChannel;
   readonly artifacts: Artifacts;
   readonly workflow: Workflow;
   readonly compaction: Compaction;
@@ -105,6 +107,7 @@ export class Engine {
       );
       this.files = new NativeFiles(options.helper);
       this.gateway = new Gateway(this.store, this.operations);
+      this.models = new ModelChannel(this.store, this.operations);
       this.artifacts = new Artifacts(this.store, this.identity);
       this.snapshots = new Snapshots(
         this.store,
@@ -189,6 +192,16 @@ export class Engine {
     return this.operations.run(op, async (signal) => {
       const scope = this.identity.session(op.session);
       switch (op.tool) {
+        case "model": {
+          const result = await this.models.send(op, signal);
+          const artifact = this.artifacts.create(scope, {
+            kind: "model-response",
+            content: JSON.stringify(result.response),
+            dependencies: [],
+            sources: [],
+          });
+          return { ...result, artifact: artifact.id };
+        }
         case "read": {
           const repo = this.repositories.verify(scope.repository),
             content = this.files.read(repo, op.args.path);

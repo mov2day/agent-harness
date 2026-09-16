@@ -196,6 +196,9 @@ export function createEngineServer(
             engine.containment.install(data);
             result = { installed: true };
             break;
+          case "/v1/owner/model-profiles":
+            result = engine.models.install(data);
+            break;
           case "/v1/owner/runtime/attach":
             result = engine.containment.attach(
               engine.identity.session(data.session),
@@ -308,7 +311,17 @@ export function createEngineServer(
         );
         if (url.pathname === "/v1/capabilities/renew")
           result = engine.identity.renew(token, connection);
-        else if (url.pathname === "/v1/operations") {
+        else if (url.pathname === "/v1/model") {
+          const d = z
+            .object({ request: z.unknown(), idempotencyKey: z.string() })
+            .strict()
+            .parse(data);
+          result = await engine.execute(token, connection, {
+            tool: "model",
+            args: { request: d.request },
+            idempotencyKey: d.idempotencyKey,
+          });
+        } else if (url.pathname === "/v1/operations") {
           const d = z
             .object({
               tool: z.string(),

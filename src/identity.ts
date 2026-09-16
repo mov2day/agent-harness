@@ -89,6 +89,15 @@ export class Repositories {
       "repository_root",
       "Enroll the actual Git worktree root",
     );
+    for (const profile of this.store.list<{ credentialFile: string }>(
+      "model-profile",
+    )) {
+      check(
+        profile.credentialFile !== root &&
+          !profile.credentialFile.startsWith(`${root}/`),
+        "provider_credential_in_repository",
+      );
+    }
     const common = realpathSync(
       resolve(root, git(root, ["rev-parse", "--git-common-dir"])),
     );

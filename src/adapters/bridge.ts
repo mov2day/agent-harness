@@ -32,7 +32,9 @@ export class HttpTransport implements BridgeTransport {
       headers: { "content-type": "application/json", ...headers },
       body: JSON.stringify(body),
       redirect: "error",
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(
+        path === "/v1/operations" || path === "/v1/model" ? 3_610_000 : 10_000,
+      ),
     });
     const result = await response.json();
     check(
@@ -210,6 +212,13 @@ export class IntegrationBridge {
   async context() {
     return this.transport.request("/v1/context", {}, this.headers());
   }
+  async model(request: unknown, idempotencyKey: string) {
+    return this.transport.request(
+      "/v1/model",
+      { request, idempotencyKey },
+      this.headers(),
+    );
+  }
   stop() {
     this.stopped = true;
     this.capability = "";
@@ -225,6 +234,7 @@ export interface RuntimeRequest {
 export interface RuntimeRelay {
   execute(request: RuntimeRequest): Promise<unknown>;
   context(session: string): Promise<unknown>;
+  model?(session: string, request: unknown, call: string): Promise<unknown>;
 }
 /** A relay transports only scoped operation requests. There is deliberately no pairing, policy, role, or approval RPC. */
 export function boundRelay(
@@ -232,6 +242,10 @@ export function boundRelay(
   runtimeSession: string,
 ): RuntimeRelay {
   return {
+    model(session, request, call) {
+      check(session === runtimeSession, "runtime_session_spoof");
+      return bridge.model(request, call);
+    },
     execute(request) {
       check(request.session === runtimeSession, "runtime_session_spoof");
       check(/^[a-z_]+$/.test(request.tool), "runtime_tool");
