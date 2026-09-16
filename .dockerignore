@@ -8,3 +8,6 @@ native/file-helper
 native/file-helper-test
 **/__pycache__
 .DS_Store
+conformance/results
+.env
+.env.*

@@ -1,0 +1,9 @@
+{
+  "name": "agent-harness-opencode-runtime",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "opencode-ai": "1.18.31",
+    "@opencode-ai/plugin": "1.18.31"
+  }
+}

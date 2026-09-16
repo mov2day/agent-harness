@@ -1,6 +1,6 @@
 # Conformance evidence
 
-The specification's release gate includes independently reviewed runtime evidence on Linux and macOS. Unit tests and isolated command-worker tests do not certify an OpenCode or Codex runtime.
+The specification's release gate requires applicable OpenCode conformance tests on Linux and macOS, with independently approved evidence for any N/A cells. Codex requires separate adapter verification. Unit tests and isolated command-worker tests do not certify an OpenCode or Codex runtime.
 
 ## Live command workers
 
@@ -33,6 +33,14 @@ docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges a
 On 2026-09-15 the Linux arm64 image `9658938cc789` passed type checking, all 50 tests, and the production build. This includes actual `openat2` helper execution and adversarial namespace-race fixtures. The additional restart-clock tests were added afterward and verified locally; this earlier Linux result does not cover them.
 
 The updated Linux image `4cd54277674c` passed all **63** tests, type checking and the production build on 2026-09-16. The same 63 tests and checks passed on macOS. This run adds restart-clock recovery, model validation, bounded runtime health, failed audit writes/commits, and real TLS gateway fixtures. TLS fixture routing is local and explicitly controlled by the test; production DNS checks, pinned lookup and hostname verification remain enabled.
+
+The subsequent Linux image `806b52545ce4` passed **69/69** tests, type checking and the production build on 2026-09-16. The same checks passed on macOS. This adds five restricted model-channel scenarios and a test that verifies runtime/worker/dependency changes invalidate source fingerprints.
+
+## Live OpenCode transport
+
+On 2026-09-16, `npm run test:opencode:live` passed with the actual OpenCode **1.18.31** binary and plugin in image `785c96345416`, using the dedicated Colima daemon from the macOS host. The conversation traversed context retrieval, a streamed model response, a scoped artifact call, and a final answer. Probes confirmed raw-session spoof rejection, a denied native-shell request with no file effect, no external network, no host repository/socket access, and container removal.
+
+The provider and engine replies in this transport test are deterministic fixtures. It does not certify the full engine-backed workflow, Linux host integration, or the Codex runtime. Build/run instructions and remaining integration requirements are in the [OpenCode runtime notes](../runtime/opencode/README.md).
 
 ## Authorization mechanism benchmark
 

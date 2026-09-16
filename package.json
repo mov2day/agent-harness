@@ -15,10 +15,11 @@
     "verify": "npm run typecheck && npm test && npm run build",
     "build:native": "node scripts/build-native.mjs",
     "pretest": "node scripts/build-native.mjs --test",
-    "format": "prettier --write src web test scripts conformance",
-    "format:check": "prettier --check src web test scripts conformance",
+    "format": "prettier --write src web test scripts conformance runtime",
+    "format:check": "prettier --check src web test scripts conformance runtime",
     "test:workers:live": "node scripts/build-native.mjs && node --import tsx --test --test-reporter=spec conformance/live/workers.test.ts",
-    "benchmark:authorization": "node --import tsx conformance/authorization-benchmark.ts"
+    "benchmark:authorization": "node --import tsx conformance/authorization-benchmark.ts",
+    "test:opencode:live": "node --import tsx --test --test-reporter=spec conformance/live/opencode.test.ts"
   },
   "dependencies": {
     "minimatch": "^10.0.1",

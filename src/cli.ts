@@ -1,17 +1,12 @@
 #!/usr/bin/env node
-import {
-  readFileSync,
-  writeFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-} from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Engine } from "./engine.js";
 import { createEngineServer, ownerCredential } from "./server.js";
-import { check, hash } from "./core.js";
+import { check } from "./core.js";
+import { sourceFingerprint } from "./fingerprint.js";
 const args = process.argv.slice(2),
   command = args.shift() ?? "help";
 const value = (flag: string, fallback?: string) => {
@@ -28,24 +23,7 @@ const value = (flag: string, fallback?: string) => {
 const state = resolve(
   value("--state", join(homedir(), ".local", "state", "agent-harness"))!,
 );
-function sourceFingerprint() {
-  const files: string[] = [];
-  const walk = (path: string) => {
-    for (const entry of readdirSync(path, { withFileTypes: true })) {
-      const full = join(path, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (/\.(ts|tsx|c)$/.test(full)) files.push(full);
-    }
-  };
-  walk("src");
-  walk("native");
-  return hash(
-    files
-      .sort()
-      .map((path) => `${path}\0${readFileSync(path, "utf8")}`)
-      .join("\0"),
-  );
-}
+const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 if (command === "help") {
   process.stdout.write(
     `agent-harness — local engine controls\n\nCommands:\n  init                         Create owner-only state and web credential\n  serve [--port 4317]           Run loopback engine and web controls\n  enroll --repository PATH     Verify and enroll a Git worktree\n  pair --runtime opencode      Provision a trusted bridge credential\n  credential-path              Print the web credential file location\n  fingerprint                  Print the enforcement source fingerprint\n\nOptions: --state PATH (outside repositories); --worker-image sha256:DIGEST\nRoot coding sessions are started independently. No command launches a root session.\n`,
@@ -53,11 +31,11 @@ if (command === "help") {
 } else if (command === "credential-path") {
   process.stdout.write(`${join(state, "web.credential")}\n`);
 } else if (command === "fingerprint") {
-  process.stdout.write(`${sourceFingerprint()}\n`);
+  process.stdout.write(`${sourceFingerprint(projectRoot)}\n`);
 } else {
   const engine = new Engine({
     state,
-    sourceHash: sourceFingerprint(),
+    sourceHash: sourceFingerprint(projectRoot),
     workerImage: value("--worker-image"),
   });
   if (command === "serve") {
