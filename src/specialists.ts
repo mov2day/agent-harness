@@ -374,4 +374,47 @@ export class Specialists {
       return this.view(task);
     });
   }
+  release(token: string, connection: string, session: string) {
+    const parent = this.parent(this.identity.authenticate(token, connection));
+    const child = this.identity.session(session);
+    check(
+      child.parent === parent.session &&
+        child.root === parent.root &&
+        child.repository === parent.repository &&
+        child.status === "terminated",
+      "specialist_release_scope",
+    );
+    this.idle(child);
+    return child;
+  }
+  abandon(token: string, connection: string, key: string) {
+    const scope = this.identity.authenticate(token, connection);
+    return this.store.transaction(() => {
+      const parent = this.parent(scope),
+        task = this.get(parent, key);
+      check(task.status === "running", "specialist_task_terminal");
+      task.status = "requires_reconciliation";
+      task.error = "specialist_host_state_lost";
+      task.completed = this.store.clock.now();
+      this.save(task, "specialist.interrupted");
+      this.operations.invalidate(parent.session, "specialist_host_state_lost");
+      return this.view(task);
+    });
+  }
+  context(scope: Session) {
+    const tasks = this.store
+      .list<SpecialistTask>("specialist-task", scope.repository)
+      .filter(
+        (task) =>
+          task.root === scope.root &&
+          (task.session === scope.session || task.parent === scope.session),
+      )
+      .sort((a, b) => a.created - b.created || a.id.localeCompare(b.id));
+    // Include all current assignments and a bounded recent history. Task text is
+    // explicitly separate from the engine's authoritative role and permissions.
+    return tasks
+      .filter(pending)
+      .concat(tasks.filter((task) => !pending(task)).slice(-8))
+      .map((task) => this.view(task));
+  }
 }

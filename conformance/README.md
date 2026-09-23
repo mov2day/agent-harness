@@ -38,6 +38,8 @@ The subsequent Linux image `806b52545ce4` passed **69/69** tests, type checking 
 
 On 2026-09-23 Linux image `c961779faf07` and the macOS host passed **73/73** tests, type checking and production builds. The additional tests cover durable runtime launch/attachment, revocation during inspection, crash cleanup outcomes, mismatched container identities, and termination before container creation.
 
+The later Linux image `49f4107d4f7f` and macOS host passed **87/87** tests, type checking and production builds. The additional coverage includes durable specialist assignments, claim races, explicit artifact forwarding, retained-context isolation, interrupted/failed tasks, duplicate host delivery, late results after revocation, orphaned claims and failed cleanup pausing the Conductor. The Linux run uses the actual native file helper; live OpenCode orchestration was separately exercised from macOS as described below.
+
 ## Live OpenCode transport
 
 On 2026-09-16, `npm run test:opencode:live` passed with the actual OpenCode **1.18.31** binary and plugin in image `785c96345416`, using the dedicated Colima daemon from the macOS host. The conversation traversed context retrieval, a streamed model response, a scoped artifact call, and a final answer. Probes confirmed raw-session spoof rejection, a denied native-shell request with no file effect, no external network, no host repository/socket access, and container removal.
@@ -50,7 +52,15 @@ The provider and engine replies in this transport test are deterministic fixture
 
 The integration test runs real HTTP registration, scoped capabilities, launch preparation, independent container inspection, context retrieval, the model-channel service, role admission, SQLite persistence and shutdown. A scripted provider requests a forbidden Conductor file read, then an allowed artifact write. The test verifies denial without disclosure, repository/session ownership, untrusted artifact provenance, terminated authority, a durable stopped outcome and actual container removal.
 
-Provider transport and runtime-certificate evidence are explicit disposable fixtures. No test certificate is installed in operator state or represented as independent release approval. Full specialist workflows, Linux-host runtime integration, model-driven compaction and Codex runtime conformance remain open.
+Provider transport and runtime-certificate evidence are explicit disposable fixtures. No test certificate is installed in operator state or represented as independent release approval. Linux-host runtime integration, model-driven compaction and Codex runtime conformance remain open.
+
+### Live specialist workflow
+
+On 2026-09-23, `npm run test:opencode:specialists` passed on the macOS host with image `sha256:411216a2fdc7ef2a26db8c3a568c4b6221955fbc1508e17967a20440f9584d87`. The transport and original engine integration suites also passed again with that image.
+
+The test completed 42 actual runtime model turns, ten assignments and all five reviewed workflow stages. It verified a single Reviewer retained its process across five tasks, each session had a separate connection, final artifacts retained specialist ownership and explicit input dependencies, and all seven containers had durable stopped records and were actually removed. Provider decisions and runtime certification are scripted/disposable fixtures. Human gates are disabled by explicit fixture policy; their version binding remains covered in the workflow tests. This test does not claim an actual code change or command execution in its implementation/execution stage artifacts.
+
+The test initially exposed missing context in actual provider requests, despite successful context retrieval. The pinned OpenCode hook keeps its original system array; the plugin now mutates that array in place. The passing scenario verifies the engine-assigned session/role reaches the provider. Earlier context-retrieval observations alone did not establish this behavior.
 
 ## Authorization mechanism benchmark
 

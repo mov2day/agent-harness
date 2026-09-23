@@ -17,6 +17,7 @@ This image pins OpenCode and its plugin package to **1.18.31**, with a pinned No
 docker build -f runtime/opencode/Dockerfile -t agent-harness-opencode:1.18.31 .
 npm run test:opencode:live
 npm run test:opencode:engine
+npm run test:opencode:specialists
 ```
 
 Select the intended isolated Docker context for both commands. The test resolves the image to its immutable ID before creating a container. `HARNESS_TEST_OPENCODE_IMAGE` can select a different image reference for testing; the production transport requires a full `sha256:` image ID.
@@ -24,6 +25,10 @@ Select the intended isolated Docker context for both commands. The test resolves
 The live test runs the actual binary and plugin through a scripted model response, a brokered artifact call, and a final answer. It also checks alternate session rejection, denied native-shell effects with a writable-directory control, network isolation, absence of host paths/sockets, and container removal.
 
 The engine integration test uses the production HTTP bridge, registration, policy, leases, model channel, artifacts, container inspection and shutdown. It scripts only the provider responses, including a forbidden Conductor file read followed by an allowed artifact write. Its runtime certificate is an explicit disposable fixture, never release evidence.
+
+The specialist test exercises all five review stages with ten assignments and seven real containers. A Reviewer is reused within the original root; producer sessions are released after review. It checks artifact ownership and input lineage, separate connections, terminal task outcomes and actual removal of every container. The provider responses and certificate are disposable fixtures; the test does not evaluate model quality or replace the separate file/command and release conformance suites.
+
+The system-context hook mutates `output.system` in place. The pinned [OpenCode request preparation](https://github.com/anomalyco/opencode/blob/v1.18.31/packages/opencode/src/session/llm/request.ts#L52-L71) retains that original array. Reassigning the property silently loses the injected context; the specialist test asserts the engine-assigned role in the actual provider payload.
 
 ## External launcher
 
@@ -42,4 +47,12 @@ Use `--once` to stop after the first completed runtime turn. Otherwise, the host
 
 Before container creation, the engine durably records the exact image, name, connection, session, certificate, model and initial operator goal. Attachment rechecks authority and independently inspects the container. A retry cannot replace an attached runtime or change the original launch request. Revocation, termination and restart stop protected operations and trigger cleanup of the recorded process. Unknown creation outcomes, identity mismatches and removal failures remain visible under **Audit → Runtime cleanup**; the retry action never removes a container whose recorded identity differs.
 
-**Full release certification is still pending.** Specialist orchestration, integrated compaction, full engine-backed conformance on both host platforms and separate Codex runtime verification remain required.
+## Specialist assignments
+
+The Conductor uses `harness_delegate` with a role, task and explicit artifact IDs. The host first obtains engine admission and a durable assignment, then claims it with credentials kept outside the runtime. The specialist gets a separate contained process and connection. Its final text becomes an untrusted artifact owned by that specialist and shared with the root; it cannot create approvals.
+
+Use `action: "message"` with an idle specialist's engine session ID to reuse its retained context, `action: "status"` with a task ID to read the outcome, and `action: "finish"` to release an idle specialist. Reuse is restricted to the same root session and repository. Starting or reusing a specialist shares only the artifacts supplied in that assignment. Released specialists cannot be resumed. Root shutdown also cleans up retained specialists.
+
+The host never replays a task whose claim survived without its local execution state. It records reconciliation and pauses dependent authority. Revocation while awaiting a result cannot return the earlier successful admission as an ordinary completed result.
+
+**Full release certification is still pending.** Integrated compaction/learning, full engine-backed conformance on both host platforms and separate Codex runtime verification remain required.

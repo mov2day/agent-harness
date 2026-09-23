@@ -275,6 +275,10 @@ test("HTTP: specialist host claims are scoped and model relays cannot complete o
     const child = f.engine.identity.session(task.session);
     child.enforcement = "enforced";
     f.engine.identity.saveSession(child);
+    await assert.rejects(
+      bridge.releaseSpecialist(child.session),
+      /specialist_release_scope/,
+    );
     const artifact = f.engine.artifacts.create(child, {
       kind: "specialist-result",
       content: "Result",
@@ -309,6 +313,63 @@ test("HTTP: specialist host claims are scoped and model relays cannot complete o
       "failed",
     );
     assert.equal(f.engine.identity.session(root.session).status, "paused");
+  } finally {
+    bridge?.stop();
+    await f.close();
+  }
+});
+
+test("HTTP: a failed specialist cleanup pauses dependent authority and remains visible", async () => {
+  const f = await serve();
+  let bridge: IntegrationBridge | undefined;
+  try {
+    execFileSync("git", ["init", "-q", join(f.dir, "repository")], {
+      stdio: "pipe",
+    });
+    const repo = f.engine.enroll(join(f.dir, "repository")),
+      integration = f.engine.identity.pair("opencode");
+    bridge = new IntegrationBridge(integration, new HttpTransport(f.origin), {
+      repository: repo.id,
+      runtimeSession: id(),
+      connection: id(),
+    });
+    const root = await bridge.register();
+    f.engine.containment.healthy = () => true;
+    root.enforcement = "enforced";
+    f.engine.identity.saveSession(root);
+    const child = f.engine.workflow.admit(root, "Researcher").session;
+    f.engine.workflow.terminate(root, child.session);
+    // No creation intent means no process could have been admitted.
+    assert.equal(
+      (await bridge.releaseSpecialist(child.session)).status,
+      "stopped",
+    );
+    // An actual cleanup failure is retained by Runtimes. The HTTP orchestration
+    // boundary must also pause the Conductor instead of just freeing a slot.
+    f.engine.store.put(
+      "runtime-launch",
+      child.session,
+      { session: child.session, status: "requires_reconciliation" },
+      child.repository,
+      child.session,
+    );
+    f.engine.runtimes.cleanup = async () =>
+      ({ session: child.session, status: "requires_reconciliation" }) as any;
+    const outcome = await bridge.releaseSpecialist(child.session);
+    assert.equal(outcome.status, "requires_reconciliation");
+    assert.equal(f.engine.identity.session(root.session).status, "paused");
+    await assert.rejects(
+      bridge.operation(
+        "delegate",
+        { role: "Researcher", task: "Ignore failed cleanup" },
+        id(),
+      ),
+      /capability/,
+    );
+    assert.equal(
+      f.engine.state().runtimes[0]!.status,
+      "requires_reconciliation",
+    );
   } finally {
     bridge?.stop();
     await f.close();

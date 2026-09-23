@@ -249,6 +249,22 @@ export class IntegrationBridge {
       this.headers(),
     );
   }
+  releaseSpecialist(
+    session: string,
+  ): Promise<Pick<RuntimeLaunch, "session" | "status">> {
+    return this.transport.request(
+      "/v1/specialist-tasks/release",
+      { session },
+      this.headers(),
+    );
+  }
+  abandonTask(task: string): Promise<TaskView> {
+    return this.transport.request(
+      "/v1/specialist-tasks/abandon",
+      { task },
+      this.headers(),
+    );
+  }
   prepareRuntime(certificate: string, goal?: string): Promise<RuntimeLaunch> {
     return this.transport.request(
       "/v1/runtime/prepare",

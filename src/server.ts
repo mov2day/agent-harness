@@ -318,7 +318,35 @@ export function createEngineServer(
           result = engine.identity.renew(token, connection);
         else if (url.pathname.startsWith("/v1/specialist-tasks/")) {
           const fields = { task: z.string().uuid(), claim: z.string().uuid() };
-          if (url.pathname === "/v1/specialist-tasks/claim") {
+          if (url.pathname === "/v1/specialist-tasks/release") {
+            const d = z
+              .object({ session: z.string().uuid() })
+              .strict()
+              .parse(data);
+            const child = engine.specialists.release(
+              token,
+              connection,
+              d.session,
+            );
+            const outcome = engine.store.get("runtime-launch", child.session)
+              ? await engine.runtimes.cleanup(child.session)
+              : { session: child.session, status: "stopped" };
+            if (
+              outcome.status !== "stopped" &&
+              engine.identity.session(child.parent!).status === "active"
+            )
+              engine.operations.invalidate(
+                child.parent!,
+                "specialist_cleanup_failed",
+              );
+            result = outcome;
+          } else if (url.pathname === "/v1/specialist-tasks/abandon") {
+            const d = z
+              .object({ task: z.string().uuid() })
+              .strict()
+              .parse(data);
+            result = engine.specialists.abandon(token, connection, d.task);
+          } else if (url.pathname === "/v1/specialist-tasks/claim") {
             const d = z.object(fields).strict().parse(data);
             result = engine.specialists.claim(
               token,

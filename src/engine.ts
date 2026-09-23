@@ -331,6 +331,13 @@ export class Engine {
             ? {
                 state: this.compaction.authoritative(scope),
                 budget: this.compaction.budget(scope),
+                session: {
+                  id: scope.session,
+                  root: scope.root,
+                  role: scope.role,
+                  model: scope.model,
+                },
+                assignments: this.specialists.context(scope),
               }
             : op.args.action === "get"
               ? this.compaction.get(scope, op.args.id)
