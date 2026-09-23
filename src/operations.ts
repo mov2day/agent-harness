@@ -13,6 +13,7 @@ import type { Identity, Capability } from "./identity.js";
 import type { Policies } from "./policy.js";
 import { DenialMonitor } from "./monitoring.js";
 import { modelRequestSchema } from "./model-channel.js";
+import { delegateSchema } from "./specialists.js";
 const path = z.string().min(1).max(2048);
 export const toolSchemas = {
   model: z.object({ request: modelRequestSchema }).strict(),
@@ -40,19 +41,7 @@ export const toolSchemas = {
       approval: z.string(),
     })
     .strict(),
-  delegate: z
-    .object({
-      role: z.enum([
-        "Researcher",
-        "Planner",
-        "Implementer",
-        "Reviewer",
-        "Verifier",
-      ]),
-      model: z.string().optional(),
-      reasoning: z.string().optional(),
-    })
-    .strict(),
+  delegate: delegateSchema,
   artifact: z.union([
     z.object({ action: z.literal("snapshot") }).strict(),
     z
@@ -172,6 +161,14 @@ export class Operations {
   readonly monitor: DenialMonitor;
   private aborts = new Map<string, AbortController>();
   private cancelHooks = new Map<string, () => Promise<boolean>>();
+  private invalidationListeners = new Set<
+    (sessions: ReadonlySet<string>, reason: string) => void
+  >();
+  onInvalidation(
+    listener: (sessions: ReadonlySet<string>, reason: string) => void,
+  ) {
+    this.invalidationListeners.add(listener);
+  }
   constructor(
     readonly store: Store,
     readonly identity: Identity,
@@ -543,6 +540,8 @@ export class Operations {
           s.session,
         );
       }
+      for (const listener of this.invalidationListeners)
+        listener(affected, reason);
     });
     for (const op of cancelling) {
       this.aborts.get(op.id)?.abort(new Error(reason));

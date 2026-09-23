@@ -2,6 +2,7 @@ import { readFileSync, lstatSync, realpathSync } from "node:fs";
 import { check, sign, type Session } from "../core.js";
 import type { Integration, Registration } from "../identity.js";
 import type { RuntimeLaunch } from "../runtimes.js";
+import type { TaskView } from "../specialists.js";
 export interface BridgeTransport {
   request(
     path: string,
@@ -217,6 +218,34 @@ export class IntegrationBridge {
     return this.transport.request(
       "/v1/model",
       { request, idempotencyKey },
+      this.headers(),
+    );
+  }
+  claimTask(
+    task: string,
+    claim: string,
+  ): Promise<{ task: TaskView; session: Session }> {
+    return this.transport.request(
+      "/v1/specialist-tasks/claim",
+      { task, claim },
+      this.headers(),
+    );
+  }
+  completeTask(
+    task: string,
+    claim: string,
+    artifact: string,
+  ): Promise<TaskView> {
+    return this.transport.request(
+      "/v1/specialist-tasks/complete",
+      { task, claim, artifact },
+      this.headers(),
+    );
+  }
+  failTask(task: string, claim: string): Promise<TaskView> {
+    return this.transport.request(
+      "/v1/specialist-tasks/fail",
+      { task, claim },
       this.headers(),
     );
   }

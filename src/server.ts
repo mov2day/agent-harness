@@ -316,7 +316,39 @@ export function createEngineServer(
         );
         if (url.pathname === "/v1/capabilities/renew")
           result = engine.identity.renew(token, connection);
-        else if (url.pathname === "/v1/runtime/prepare")
+        else if (url.pathname.startsWith("/v1/specialist-tasks/")) {
+          const fields = { task: z.string().uuid(), claim: z.string().uuid() };
+          if (url.pathname === "/v1/specialist-tasks/claim") {
+            const d = z.object(fields).strict().parse(data);
+            result = engine.specialists.claim(
+              token,
+              connection,
+              d.task,
+              d.claim,
+            );
+          } else if (url.pathname === "/v1/specialist-tasks/complete") {
+            const d = z
+              .object({ ...fields, artifact: z.string().uuid() })
+              .strict()
+              .parse(data);
+            result = engine.specialists.complete(
+              token,
+              connection,
+              d.task,
+              d.claim,
+              d.artifact,
+            );
+          } else if (url.pathname === "/v1/specialist-tasks/fail") {
+            const d = z.object(fields).strict().parse(data);
+            result = engine.specialists.fail(
+              token,
+              connection,
+              d.task,
+              d.claim,
+            );
+          } else
+            throw new HarnessError("not_found", "API route not found", 404);
+        } else if (url.pathname === "/v1/runtime/prepare")
           result = engine.runtimes.prepare(token, connection, data);
         else if (url.pathname === "/v1/runtime/attach") {
           const d = z.object({ container: z.string() }).strict().parse(data);

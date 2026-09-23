@@ -55,6 +55,12 @@ export interface StageAttempt {
 }
 export class Artifacts {
   private onInvalidate: (root: string) => void = () => {};
+  private invalidationListeners = new Set<
+    (artifacts: ReadonlySet<string>) => void
+  >();
+  onInvalidation(listener: (artifacts: ReadonlySet<string>) => void) {
+    this.invalidationListeners.add(listener);
+  }
   constructor(
     readonly store: Store,
     readonly identity: Identity,
@@ -72,6 +78,7 @@ export class Artifacts {
       "Artifact not found",
       404,
     );
+    check(hash(a.content) === a.hash, "artifact_integrity");
     return a;
   }
   source(scope: Session, key: string) {
@@ -162,6 +169,33 @@ export class Artifacts {
       );
     });
   }
+  /** Forward only content explicitly visible to this Conductor, preserving its
+   * original owner and trust. Admission wraps sharing and assignment atomically. */
+  shareForDelegation(parent: Session, key: string, child: Session) {
+    const artifact = this.get(parent, key);
+    check(
+      parent.role === "Conductor" &&
+        child.parent === parent.session &&
+        child.root === parent.root &&
+        child.repository === parent.repository &&
+        artifact.root === parent.root,
+      "delegation_scope",
+    );
+    artifact.sharedWith = [...new Set([...artifact.sharedWith, child.session])];
+    this.store.put(
+      "artifact",
+      artifact.id,
+      artifact,
+      artifact.repository,
+      artifact.session,
+    );
+    this.store.audit(
+      "artifact.delegated",
+      { artifact: key, owner: artifact.session, target: child.session },
+      parent.repository,
+      parent.session,
+    );
+  }
   invalidate(scope: Session, key: string) {
     const artifact = this.get(scope, key);
     check(artifact.session === scope.session, "artifact_owner");
@@ -195,6 +229,7 @@ export class Artifacts {
             approval.session,
           );
         }
+      for (const listener of this.invalidationListeners) listener(invalid);
       for (const root of new Set(
         all.filter((a) => invalid.has(a.id)).map((a) => a.root),
       ))
@@ -304,6 +339,7 @@ export class Workflow {
     const child = this.identity.session(target);
     check(
       scope.role === "Conductor" &&
+        child.parent === scope.session &&
         child.root === scope.root &&
         child.repository === scope.repository,
       "delegation_scope",

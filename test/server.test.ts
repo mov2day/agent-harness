@@ -7,7 +7,12 @@ import { execFileSync } from "node:child_process";
 import { request as httpRequest } from "node:http";
 import { Engine } from "../src/engine.js";
 import { createEngineServer, ownerCredential } from "../src/server.js";
-import { sign } from "../src/core.js";
+import { sign, id } from "../src/core.js";
+import {
+  IntegrationBridge,
+  HttpTransport,
+  boundRelay,
+} from "../src/adapters/bridge.js";
 async function serve() {
   const dir = mkdtempSync(join(tmpdir(), "harness-http-")),
     engine = new Engine({
@@ -192,5 +197,120 @@ test("engine: a second writer is rejected and state cannot live in an enrolled r
   } finally {
     engine.close();
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("HTTP: specialist host claims are scoped and model relays cannot complete or fail tasks", async () => {
+  const f = await serve();
+  let bridge: IntegrationBridge | undefined;
+  try {
+    execFileSync("git", ["init", "-q", join(f.dir, "repository")], {
+      stdio: "pipe",
+    });
+    const repo = f.engine.enroll(join(f.dir, "repository")),
+      integration = f.engine.identity.pair("opencode");
+    bridge = new IntegrationBridge(integration, new HttpTransport(f.origin), {
+      repository: repo.id,
+      runtimeSession: id(),
+      connection: id(),
+    });
+    const root = await bridge.register();
+    // HTTP service fixture only. Real containment remains covered by live tests.
+    f.engine.containment.healthy = () => true;
+    root.enforcement = "enforced";
+    f.engine.identity.saveSession(root);
+    const requestKey = id(),
+      assignment = { role: "Researcher", task: "Investigate safely" };
+    const assigned = await bridge.operation("delegate", assignment, requestKey);
+    assert.equal(assigned.status, "completed");
+    assert.deepEqual(
+      await bridge.operation("delegate", assignment, requestKey),
+      assigned,
+    );
+    assert.equal(f.engine.store.list("specialist-task").length, 1);
+    const task = assigned.result.task,
+      claim = id();
+    assert.equal(
+      (await f.post("/v1/specialist-tasks/claim", { task: task.id, claim }))
+        .status,
+      401,
+    );
+    assert.equal(
+      (
+        await f.post(
+          "/v1/specialist-tasks/claim",
+          { task: task.id, claim },
+          { origin: f.origin },
+        )
+      ).status,
+      403,
+    );
+    assert.equal(
+      (await bridge.claimTask(task.id, claim)).task.status,
+      "running",
+    );
+    await assert.rejects(
+      bridge.claimTask(task.id, id()),
+      /specialist_task_claimed/,
+    );
+    const relay = boundRelay(bridge, "raw-session");
+    await assert.rejects(
+      relay.execute({
+        session: "raw-session",
+        tool: "complete_task",
+        args: { task: task.id, claim, artifact: id() },
+        call: id(),
+      }),
+      /tool_unlisted/,
+    );
+    await assert.rejects(
+      relay.execute({
+        session: "raw-session",
+        tool: "delegate",
+        args: { action: "fail", task: task.id, claim },
+        call: id(),
+      }),
+      /invalid_request/,
+    );
+    const child = f.engine.identity.session(task.session);
+    child.enforcement = "enforced";
+    f.engine.identity.saveSession(child);
+    const artifact = f.engine.artifacts.create(child, {
+      kind: "specialist-result",
+      content: "Result",
+      dependencies: [],
+      sources: [],
+      shareWithRoot: true,
+    });
+    assert.equal(
+      (await bridge.completeTask(task.id, claim, artifact.id)).status,
+      "completed",
+    );
+    assert.equal(
+      (
+        await bridge.operation(
+          "delegate",
+          { action: "status", task: task.id },
+          id(),
+        )
+      ).result.task.result.artifact,
+      artifact.id,
+    );
+    assert.equal(JSON.stringify(f.engine.state()).includes("claimHash"), false);
+    const second = await bridge.operation(
+      "delegate",
+      { action: "message", session: child.session, task: "Continue" },
+      id(),
+    );
+    const secondClaim = id();
+    await bridge.claimTask(second.result.task.id, secondClaim);
+    assert.equal(
+      (await bridge.failTask(second.result.task.id, secondClaim)).status,
+      "failed",
+    );
+    assert.equal(f.engine.identity.session(root.session).status, "paused");
+  } finally {
+    bridge?.stop();
+    await f.close();
   }
 });

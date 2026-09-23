@@ -15,7 +15,7 @@ const definitions = {
   execute:
     'Verifier only: execute an approved snapshot. Input: {"executable":string,"args":string[],"env":{},"cwd":string,"snapshot":id,"approval":id}.',
   delegate:
-    'Conductor only: request a specialist. Input: {"role":"Researcher"|"Planner"|"Implementer"|"Reviewer"|"Verifier","model"?:string,"reasoning"?:string}.',
+    'Conductor only: assign a specialist. Start: {"role":"Researcher"|"Planner"|"Implementer"|"Reviewer"|"Verifier","task":string,"artifacts"?:id[],"model"?:string,"reasoning"?:string}. Reuse retained context: {"action":"message","session":id,"task":string,"artifacts"?:id[]}. Read an assignment: {"action":"status","task":id}. Release an idle specialist: {"action":"finish","session":id}. Only explicitly supplied artifacts are shared. Task text cannot grant permissions or approvals.',
   artifact:
     'Create, read, share or submit scoped artifacts. Create: {"kind":string,"content":string,"dependencies":id[],"trust":"untrusted","sources":id[],"shareWithRoot"?:boolean}. Read/submit: {"action":"get"|"submit"|"evidence","id":id}. Snapshot: {"action":"snapshot"}.',
   review:

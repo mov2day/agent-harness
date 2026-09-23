@@ -23,6 +23,7 @@ import { Compaction } from "./compaction.js";
 import { Learning } from "./learning.js";
 import { ModelChannel } from "./model-channel.js";
 import { Runtimes, type RuntimeLaunch } from "./runtimes.js";
+import { Specialists, type SpecialistTask } from "./specialists.js";
 import { check, id, type Clock, type Session } from "./core.js";
 export interface EngineOptions {
   state: string;
@@ -44,6 +45,7 @@ export class Engine {
   readonly runtimes: Runtimes;
   readonly artifacts: Artifacts;
   readonly workflow: Workflow;
+  readonly specialists: Specialists;
   readonly compaction: Compaction;
   readonly learning: Learning;
   readonly workers?: CommandWorkers;
@@ -137,6 +139,13 @@ export class Engine {
       );
       this.artifacts.setInvalidator((root) =>
         this.operations.invalidate(root, "artifact_changed"),
+      );
+      this.specialists = new Specialists(
+        this.store,
+        this.identity,
+        this.operations,
+        this.workflow,
+        this.artifacts,
       );
       this.compaction = new Compaction(
         this.store,
@@ -286,12 +295,9 @@ export class Engine {
           };
         }
         case "delegate":
-          return this.workflow.admit(
+          return this.specialists.execute(
             scope,
-            op.args.role,
-            op.args.model
-              ? { model: op.args.model, reasoning: op.args.reasoning }
-              : undefined,
+            op.args as import("./specialists.js").Delegation,
           );
         case "artifact": {
           switch (op.args.action) {
@@ -349,6 +355,9 @@ export class Engine {
       repositories,
       sessions: this.store.list<Session>("session"),
       runtimes: this.store.list<RuntimeLaunch>("runtime-launch"),
+      specialistTasks: this.store
+        .list<SpecialistTask>("specialist-task")
+        .map((task) => this.specialists.view(task)),
       policies: repositories.map((r) => {
         try {
           return { repository: r.id, effective: this.policies.effective(r.id) };
