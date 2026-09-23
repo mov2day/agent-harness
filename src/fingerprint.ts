@@ -37,11 +37,9 @@ export function sourceFingerprint(root: string) {
   ])
     walk(directory);
   return digest(
-    files
-      .sort()
-      .map((path) => ({
-        path: relative(root, join(root, path)),
-        hash: hash(readFileSync(join(root, path))),
-      })),
+    files.sort().map((path) => ({
+      path: relative(root, join(root, path)),
+      hash: hash(readFileSync(join(root, path))),
+    })),
   );
 }

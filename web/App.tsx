@@ -792,6 +792,43 @@ function App() {
                     />
                   ))}
               </section>
+              <section>
+                <div className="section-heading">
+                  <h2>Runtime cleanup</h2>
+                </div>
+                {!state.runtimes.length ? (
+                  <p className="fine">
+                    No runtime processes have been registered.
+                  </p>
+                ) : (
+                  state.runtimes.map((runtime) => (
+                    <div className="list-row" key={runtime.session}>
+                      <div>
+                        <strong>Session {short(runtime.session)}</strong>
+                        <small>
+                          <Badge value={runtime.status} />
+                        </small>
+                        {runtime.error && <small>{runtime.error}</small>}
+                      </div>
+                      {runtime.status === "requires_reconciliation" && (
+                        <button
+                          className="secondary"
+                          disabled={busy}
+                          onClick={() =>
+                            void action(
+                              "runtime/cleanup",
+                              { session: runtime.session },
+                              "Cleanup checked. The recorded outcome is shown below.",
+                            )
+                          }
+                        >
+                          Retry cleanup
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )}
+              </section>
             </>
           )}
           <footer>

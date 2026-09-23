@@ -22,6 +22,7 @@ import { Artifacts, Workflow } from "./workflow.js";
 import { Compaction } from "./compaction.js";
 import { Learning } from "./learning.js";
 import { ModelChannel } from "./model-channel.js";
+import { Runtimes, type RuntimeLaunch } from "./runtimes.js";
 import { check, id, type Clock, type Session } from "./core.js";
 export interface EngineOptions {
   state: string;
@@ -40,6 +41,7 @@ export class Engine {
   readonly files: NativeFiles;
   readonly gateway: Gateway;
   readonly models: ModelChannel;
+  readonly runtimes: Runtimes;
   readonly artifacts: Artifacts;
   readonly workflow: Workflow;
   readonly compaction: Compaction;
@@ -85,8 +87,14 @@ export class Engine {
       this.lockHandle = openSync(this.lock, "wx", 0o600);
     }
     writeFileSync(this.lockHandle, String(process.pid));
+    let openedStore: Store | undefined,
+      initializedContainment: Containment | undefined,
+      initializedRuntimes: Runtimes | undefined;
     try {
-      this.store = new Store(join(state, "engine.sqlite"), options.clock);
+      this.store = openedStore = new Store(
+        join(state, "engine.sqlite"),
+        options.clock,
+      );
       this.policies = new Policies(this.store);
       this.repositories = new Repositories(this.store);
       this.identity = new Identity(
@@ -94,7 +102,10 @@ export class Engine {
         this.policies,
         this.repositories,
       );
-      this.containment = new Containment(this.store, options.sourceHash);
+      this.containment = initializedContainment = new Containment(
+        this.store,
+        options.sourceHash,
+      );
       this.policies.setModelCapabilities(() => this.containment.capabilities());
       this.operations = new Operations(
         this.store,
@@ -133,6 +144,13 @@ export class Engine {
         this.artifacts,
       );
       this.learning = new Learning(this.store, this.artifacts, this.operations);
+      this.runtimes = initializedRuntimes = new Runtimes(
+        this.store,
+        this.identity,
+        this.operations,
+        this.containment,
+        this.compaction,
+      );
       if (options.workerImage)
         this.workers = new CommandWorkers(
           this.operations,
@@ -145,6 +163,11 @@ export class Engine {
           this.store.put("meta", "initialized", { version: 1 });
         });
       this.operations.recover();
+      void this.runtimes
+        .sweep()
+        .catch((error) =>
+          process.stderr.write(`Runtime recovery failed: ${String(error)}\n`),
+        );
       void this.workers
         ?.recover()
         .catch((error) =>
@@ -153,6 +176,13 @@ export class Engine {
       this.sweep = setInterval(() => {
         try {
           this.operations.sweep();
+          void this.runtimes
+            .sweep()
+            .catch((error) =>
+              process.stderr.write(
+                `Runtime cleanup failed: ${String(error)}\n`,
+              ),
+            );
         } catch (error) {
           process.stderr.write(`Authority sweep failed: ${String(error)}\n`);
         }
@@ -169,6 +199,9 @@ export class Engine {
       }, 250);
       this.healthCheck.unref();
     } catch (error) {
+      initializedRuntimes?.close();
+      initializedContainment?.close();
+      openedStore?.close();
       closeSync(this.lockHandle);
       unlinkSync(this.lock);
       throw error;
@@ -315,6 +348,7 @@ export class Engine {
         : { healthy: true },
       repositories,
       sessions: this.store.list<Session>("session"),
+      runtimes: this.store.list<RuntimeLaunch>("runtime-launch"),
       policies: repositories.map((r) => {
         try {
           return { repository: r.id, effective: this.policies.effective(r.id) };
@@ -356,6 +390,7 @@ export class Engine {
     clearInterval(this.sweep);
     clearInterval(this.healthCheck);
     this.containment.close();
+    this.runtimes.close();
     this.store.close();
     closeSync(this.lockHandle);
     unlinkSync(this.lock);

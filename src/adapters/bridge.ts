@@ -1,6 +1,7 @@
 import { readFileSync, lstatSync, realpathSync } from "node:fs";
 import { check, sign, type Session } from "../core.js";
 import type { Integration, Registration } from "../identity.js";
+import type { RuntimeLaunch } from "../runtimes.js";
 export interface BridgeTransport {
   request(
     path: string,
@@ -218,6 +219,31 @@ export class IntegrationBridge {
       { request, idempotencyKey },
       this.headers(),
     );
+  }
+  prepareRuntime(certificate: string, goal?: string): Promise<RuntimeLaunch> {
+    return this.transport.request(
+      "/v1/runtime/prepare",
+      { certificate, goal },
+      this.headers(),
+    );
+  }
+  attachRuntime(container: string): Promise<RuntimeLaunch> {
+    return this.transport.request(
+      "/v1/runtime/attach",
+      { container },
+      this.headers(),
+    );
+  }
+  async stopRuntime(): Promise<Pick<RuntimeLaunch, "session" | "status">> {
+    try {
+      return await this.transport.request(
+        "/v1/runtime/stop",
+        {},
+        this.headers(),
+      );
+    } finally {
+      this.stop();
+    }
   }
   stop() {
     this.stopped = true;

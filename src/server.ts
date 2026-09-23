@@ -206,6 +206,11 @@ export function createEngineServer(
               data.certificate,
             );
             break;
+          case "/v1/owner/runtime/cleanup": {
+            const d = z.object({ session: z.string() }).strict().parse(data);
+            result = await engine.runtimes.cleanup(d.session);
+            break;
+          }
           case "/v1/owner/reviews/approve":
             result = engine.workflow.approveStage(
               data.root,
@@ -311,7 +316,15 @@ export function createEngineServer(
         );
         if (url.pathname === "/v1/capabilities/renew")
           result = engine.identity.renew(token, connection);
-        else if (url.pathname === "/v1/model") {
+        else if (url.pathname === "/v1/runtime/prepare")
+          result = engine.runtimes.prepare(token, connection, data);
+        else if (url.pathname === "/v1/runtime/attach") {
+          const d = z.object({ container: z.string() }).strict().parse(data);
+          result = await engine.runtimes.attach(token, connection, d.container);
+        } else if (url.pathname === "/v1/runtime/stop") {
+          z.object({}).strict().parse(data);
+          result = await engine.runtimes.stop(token, connection);
+        } else if (url.pathname === "/v1/model") {
           const d = z
             .object({ request: z.unknown(), idempotencyKey: z.string() })
             .strict()

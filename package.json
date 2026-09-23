@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "start": "node --import tsx src/cli.ts serve",
     "harness": "node --import tsx src/cli.ts",
+    "runtime:opencode": "node --import tsx src/runtime-cli.ts",
     "verify": "npm run typecheck && npm test && npm run build",
     "build:native": "node scripts/build-native.mjs",
     "pretest": "node scripts/build-native.mjs --test",
@@ -19,7 +20,8 @@
     "format:check": "prettier --check src web test scripts conformance runtime",
     "test:workers:live": "node scripts/build-native.mjs && node --import tsx --test --test-reporter=spec conformance/live/workers.test.ts",
     "benchmark:authorization": "node --import tsx conformance/authorization-benchmark.ts",
-    "test:opencode:live": "node --import tsx --test --test-reporter=spec conformance/live/opencode.test.ts"
+    "test:opencode:live": "node --import tsx --test --test-reporter=spec conformance/live/opencode.test.ts",
+    "test:opencode:engine": "node --import tsx --test --test-reporter=spec conformance/live/engine-opencode.test.ts"
   },
   "dependencies": {
     "minimatch": "^10.0.1",

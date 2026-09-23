@@ -36,11 +36,21 @@ The updated Linux image `4cd54277674c` passed all **63** tests, type checking an
 
 The subsequent Linux image `806b52545ce4` passed **69/69** tests, type checking and the production build on 2026-09-16. The same checks passed on macOS. This adds five restricted model-channel scenarios and a test that verifies runtime/worker/dependency changes invalidate source fingerprints.
 
+On 2026-09-23 Linux image `c961779faf07` and the macOS host passed **73/73** tests, type checking and production builds. The additional tests cover durable runtime launch/attachment, revocation during inspection, crash cleanup outcomes, mismatched container identities, and termination before container creation.
+
 ## Live OpenCode transport
 
 On 2026-09-16, `npm run test:opencode:live` passed with the actual OpenCode **1.18.31** binary and plugin in image `785c96345416`, using the dedicated Colima daemon from the macOS host. The conversation traversed context retrieval, a streamed model response, a scoped artifact call, and a final answer. Probes confirmed raw-session spoof rejection, a denied native-shell request with no file effect, no external network, no host repository/socket access, and container removal.
 
 The provider and engine replies in this transport test are deterministic fixtures. It does not certify the full engine-backed workflow, Linux host integration, or the Codex runtime. Build/run instructions and remaining integration requirements are in the [OpenCode runtime notes](../runtime/opencode/README.md).
+
+### Production engine integration
+
+`npm run test:opencode:engine` passed on the macOS host on 2026-09-23 using image `sha256:1072896ffc45d515cc83df108c2bfc0a16096e576659ca687a6bab5f2d9fd763`. The transport/isolation test also passed again with that image.
+
+The integration test runs real HTTP registration, scoped capabilities, launch preparation, independent container inspection, context retrieval, the model-channel service, role admission, SQLite persistence and shutdown. A scripted provider requests a forbidden Conductor file read, then an allowed artifact write. The test verifies denial without disclosure, repository/session ownership, untrusted artifact provenance, terminated authority, a durable stopped outcome and actual container removal.
+
+Provider transport and runtime-certificate evidence are explicit disposable fixtures. No test certificate is installed in operator state or represented as independent release approval. Full specialist workflows, Linux-host runtime integration, model-driven compaction and Codex runtime conformance remain open.
 
 ## Authorization mechanism benchmark
 

@@ -47,7 +47,7 @@ test(
             assert.equal(raw, session);
             assert.equal(attached, true);
             contexts++;
-            return completed({
+            return {
               state: {
                 goals: ["Create a harmless evidence artifact"],
                 constraints: ["Use only harness tools"],
@@ -69,7 +69,7 @@ test(
                 pause: false,
                 incompleteExchange: false,
               },
-            });
+            };
           },
           async execute(request) {
             assert.equal(request.session, session);

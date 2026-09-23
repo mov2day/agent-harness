@@ -99,7 +99,7 @@ async function initialize(config) {
       else if (req.url === "/tool")
         result = unwrap(await rpc("execute", input));
       else if (req.url === "/context")
-        result = unwrap(await rpc("context", { session }));
+        result = await rpc("context", { session });
       else if (req.url === "/v1/chat/completions") {
         result = unwrap(
           await rpc("model", { session, request: input, call: randomUUID() }),

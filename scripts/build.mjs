@@ -16,6 +16,15 @@ await build({
 });
 await copyFile("web/index.html", "dist/web/index.html");
 await build({
+  entryPoints: ["src/runtime-cli.ts"],
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  outfile: "dist/runtime-cli.js",
+  packages: "external",
+  sourcemap: true,
+});
+await build({
   entryPoints: ["src/cli.ts"],
   bundle: true,
   platform: "node",

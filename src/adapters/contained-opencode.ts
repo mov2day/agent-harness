@@ -8,6 +8,7 @@ import { z } from "zod";
 import { check, id } from "../core.js";
 import { validateContainer, type ContainerInspection } from "../containment.js";
 import type { RuntimeRelay } from "./bridge.js";
+import { dockerRuntimeControl } from "../runtimes.js";
 
 const exec = promisify(execFile);
 const messageSchema = z.discriminatedUnion("type", [
@@ -49,6 +50,7 @@ const modelSchema = z
   .strict();
 export interface ContainedOpenCodeOptions {
   image: string;
+  name?: string;
   runtimeSession: string;
   connection: string;
   model: { model: string; reasoning: string };
@@ -73,6 +75,7 @@ export class ContainedOpenCode {
   >();
   private requests = new Set<string>();
   private stopping?: Promise<void>;
+  private quiescing = false;
   private failure?: unknown;
   private attached = false;
   private ready?: {
@@ -83,9 +86,14 @@ export class ContainedOpenCode {
   constructor(readonly options: ContainedOpenCodeOptions) {
     check(/^sha256:[a-f0-9]{64}$/.test(options.image), "runtime_image_digest");
     check(
-      /^[a-zA-Z0-9_-]{1,256}$/.test(options.runtimeSession) &&
+      /^[a-zA-Z0-9_:-]{1,256}$/.test(options.runtimeSession) &&
         /^[a-zA-Z0-9_-]{1,256}$/.test(options.connection),
       "runtime_binding",
+    );
+    check(
+      !options.name ||
+        /^agent-harness-runtime-[a-f0-9-]{36}$/.test(options.name),
+      "runtime_name",
     );
   }
   private expected() {
@@ -113,6 +121,7 @@ export class ContainedOpenCode {
       "docker",
       [
         "create",
+        ...(this.options.name ? ["--name", this.options.name] : []),
         "--interactive",
         "--network",
         "none",
@@ -165,7 +174,7 @@ export class ContainedOpenCode {
       this.child.once("error", (error) => this.fail(error));
       this.child.stdin.on("error", (error) => this.fail(error));
       this.child.once("exit", (code) => {
-        if (!this.stopping)
+        if (!this.stopping && !this.quiescing)
           this.fail(new Error(`runtime_stopped:${code}\n${this.stderr}`));
       });
       const timeout = setTimeout(
@@ -188,12 +197,16 @@ export class ContainedOpenCode {
     }
   }
   private send(value: unknown) {
-    check(this.child && !this.failure && !this.stopping, "runtime_unavailable");
+    check(
+      this.child && !this.failure && !this.stopping && !this.quiescing,
+      "runtime_unavailable",
+    );
     const line = JSON.stringify(value);
     check(Buffer.byteLength(line) <= 2_500_000, "runtime_message_limit");
     this.child.stdin.write(line + "\n");
   }
   private receive(chunk: Buffer) {
+    if (this.quiescing) return;
     this.buffer = Buffer.concat([this.buffer, chunk]);
     let end: number;
     try {
@@ -280,7 +293,7 @@ export class ContainedOpenCode {
     });
   }
   private fail(error: unknown) {
-    if (this.failure || this.stopping) return;
+    if (this.failure || this.stopping || this.quiescing) return;
     this.failure = error;
     this.ready?.reject(error);
     for (const pending of this.pending.values()) {
@@ -292,18 +305,26 @@ export class ContainedOpenCode {
     void this.stop().catch(() => {});
   }
   stop(): Promise<void> {
+    this.quiesce();
     return (this.stopping ??= this.cleanup());
   }
-  private async cleanup() {
+  quiesce() {
+    this.quiescing = true;
+    this.ready?.reject(new Error("runtime_stopped"));
+    this.ready = undefined;
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
       pending.reject(new Error("runtime_stopped"));
     }
     this.pending.clear();
-    if (!this.container) return;
-    const actual = await this.inspection();
+  }
+  private async cleanup() {
+    const reference = this.container ?? this.options.name;
+    if (!reference) return;
+    const actual = await dockerRuntimeControl.inspect(reference);
+    if (!actual) return;
     check(
-      actual.Id === this.container &&
+      (!this.container || actual.Id === this.container) &&
         actual.Image === this.options.image &&
         actual.Config.Labels["agent-harness.session"] ===
           this.options.runtimeSession &&
@@ -311,7 +332,7 @@ export class ContainedOpenCode {
           this.options.connection,
       "runtime_cleanup_identity",
     );
-    await exec("docker", ["rm", "--force", this.container], {
+    await exec("docker", ["rm", "--force", actual.Id], {
       timeout: 10_000,
       maxBuffer: 1024 * 1024,
     });

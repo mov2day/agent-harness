@@ -39,6 +39,7 @@ export interface RuntimeCertificate {
 }
 export interface ContainerInspection {
   Id: string;
+  Name?: string;
   Image: string;
   State: { Running: boolean };
   Config: { User: string; Env: string[]; Labels: Record<string, string> };
@@ -333,7 +334,7 @@ export class Containment {
       });
     });
   }
-  attach(session: Session, container: string, certificate: string) {
+  forSession(session: Session, certificate: string) {
     const c = this.store.get<RuntimeCertificate>(
       "runtime-certificate",
       certificate,
@@ -356,6 +357,23 @@ export class Containment {
         ),
         "unsupported_model",
       );
+    return c;
+  }
+  attach(session: Session, container: string, certificate: string) {
+    check(session.status === "active", "session_inactive");
+    const c = this.forSession(session, certificate);
+    const previous = this.store.get<RuntimeBinding>(
+      "runtime-binding",
+      session.session,
+    );
+    check(
+      !previous ||
+        (previous.container === container &&
+          previous.certificate === certificate &&
+          previous.connection === session.connection &&
+          previous.healthy),
+      "runtime_already_bound",
+    );
     validateContainer(this.inspect(container), {
       container,
       image: c.image,
