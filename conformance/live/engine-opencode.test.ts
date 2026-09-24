@@ -217,6 +217,26 @@ test(
       );
       assert.match(JSON.stringify(answer), /Scoped artifact recorded/);
       assert.equal(requests.length, 3);
+      const scope = engine.identity.session(ready.engineSession);
+      const budget = engine.compaction.budget(scope);
+      assert.ok(
+        budget.used > 240,
+        "Actual prompts must be counted even when fixture usage understates them",
+      );
+      assert.equal(budget.incompleteExchange, false);
+      assert.equal(
+        engine.compaction.context(scope).measured?.providerInput,
+        200,
+      );
+      assert.equal(
+        engine.store.list(
+          "context-tool-result",
+          repository.id,
+          ready.engineSession,
+        ).length,
+        2,
+        "Both denied and successful calls must close their exchanges",
+      );
       assert.equal(
         JSON.stringify(requests).includes(
           "fixture-host-content-must-not-enter-model",

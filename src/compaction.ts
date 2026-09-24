@@ -4,6 +4,8 @@ import type { Store } from "./store.js";
 import type { Identity } from "./identity.js";
 import type { Artifact, Artifacts } from "./workflow.js";
 import type { Operation } from "./operations.js";
+import type { ModelResponse, modelRequestSchema } from "./model-channel.js";
+import { TokenCounter, type Tokenizer } from "./tokens.js";
 export interface AuthoritativeState {
   goals: string[];
   constraints: string[];
@@ -25,6 +27,19 @@ export interface ContextState {
   failures: number;
   checkpoint?: string;
   paused: boolean;
+  tokenizer?: Tokenizer;
+  inference?: string;
+  optionalMessages?: string[];
+  calls?: Record<
+    string,
+    { tool: string; arguments: string; reserved: number; result?: string }
+  >;
+  measured?: {
+    input: number;
+    output: number;
+    providerInput?: number;
+    providerOutput?: number;
+  };
 }
 const checkpointSchema = z
   .object({
@@ -62,11 +77,34 @@ export type Checkpoint = z.infer<typeof checkpointSchema> & {
   created: number;
 };
 export class Compaction {
+  private counter = new TokenCounter();
+  private invalidate: (session: string, reason: string) => void;
   constructor(
     readonly store: Store,
     readonly identity: Identity,
     readonly artifacts: Artifacts,
-  ) {}
+  ) {
+    this.invalidate = (session) => {
+      const scope = identity.session(session);
+      scope.status = "paused";
+      identity.saveSession(scope);
+    };
+  }
+  setInvalidator(invalidate: (session: string, reason: string) => void) {
+    this.invalidate = invalidate;
+  }
+  close() {
+    this.counter.close();
+  }
+  private current(scope: Session) {
+    const session = this.identity.session(scope.session);
+    check(
+      session.repository === scope.repository &&
+        session.generation === scope.generation &&
+        session.status === "active",
+      "context_authority_changed",
+    );
+  }
   configure(scope: Session, capacity: number, reserved = 8192) {
     check(
       Number.isInteger(capacity) &&
@@ -76,13 +114,15 @@ export class Compaction {
         reserved < capacity,
       "context_capacity",
     );
+    const existing = this.store.get<ContextState>("context", scope.session);
     const value: ContextState = {
       session: scope.session,
-      capacity,
-      reserved,
       used: 0,
       failures: 0,
       paused: false,
+      ...existing,
+      capacity,
+      reserved,
     };
     this.store.put(
       "context",
@@ -95,7 +135,10 @@ export class Compaction {
   }
   context(scope: Session) {
     const c = this.store.get<ContextState>("context", scope.session);
-    check(c, "context_not_configured");
+    check(
+      c && this.identity.session(scope.session).repository === scope.repository,
+      "context_not_configured",
+    );
     return c;
   }
   authoritative(scope: Session): AuthoritativeState {
@@ -153,8 +196,335 @@ export class Compaction {
       requestCompaction: ratio >= 0.7,
       admitOptional: ratio < 0.9 && !c.paused,
       pause: c.paused || c.used >= c.capacity - c.reserved,
-      incompleteExchange: !!c.exchange,
+      incompleteExchange:
+        !!c.exchange ||
+        !!c.inference ||
+        Object.values(c.calls ?? {}).some((call) => !call.result),
     };
+  }
+  async beginModel(
+    scope: Session,
+    operation: string,
+    input: z.infer<typeof modelRequestSchema>,
+    profile: {
+      tokenizer: Tokenizer;
+      contextWindow: number;
+      maxOutputTokens: number;
+    },
+  ) {
+    this.current(scope);
+    const snapshot = this.context(scope);
+    check(!this.budget(scope).incompleteExchange, "tool_exchange_incomplete");
+    const measured =
+      (await this.counter.count(
+        { messages: input.messages, tools: input.tools },
+        profile.tokenizer,
+        Math.min(snapshot.capacity, profile.contextWindow),
+      )) +
+      256 +
+      input.messages.length * 16;
+    const result = this.store.transaction(() => {
+      this.current(scope);
+      const c = this.context(scope);
+      check(
+        c.capacity === snapshot.capacity && c.reserved === snapshot.reserved,
+        "context_configuration_changed",
+      );
+      check(!this.budget(scope).incompleteExchange, "tool_exchange_incomplete");
+      check(!c.paused, "context_paused");
+      c.tokenizer = profile.tokenizer;
+      c.capacity = Math.min(c.capacity, profile.contextWindow);
+      const used = Math.max(c.used, measured),
+        usable = c.capacity - c.reserved;
+      const optional = [
+        ...new Set(
+          input.messages.filter((m) => m.role === "user").map((m) => digest(m)),
+        ),
+      ];
+      const addsOptional = optional.some(
+        (hash) => !c.optionalMessages?.includes(hash),
+      );
+      if (addsOptional && used >= usable * 0.9) {
+        this.store.audit(
+          "context.optional_stopped",
+          { operation, measured, usable },
+          scope.repository,
+          scope.session,
+        );
+        return { error: "optional_context_stopped" };
+      }
+      const output = Math.min(
+        input.max_completion_tokens ??
+          input.max_tokens ??
+          profile.maxOutputTokens,
+        profile.maxOutputTokens,
+        usable - used,
+      );
+      if (output < 256) {
+        c.paused = true;
+        this.saveContext(scope, c);
+        this.invalidate(scope.session, "context_unavailable");
+        return { error: "model_context_unavailable" };
+      }
+      c.used = used;
+      c.inference = operation;
+      c.optionalMessages = [
+        ...new Set([...(c.optionalMessages ?? []), ...optional]),
+      ];
+      c.measured = { input: measured, output: 0 };
+      this.saveContext(scope, c);
+      this.store.audit(
+        "context.model_admitted",
+        { operation, input: measured, output, tokenizer: c.tokenizer },
+        scope.repository,
+        scope.session,
+      );
+      return { output };
+    });
+    check(!result.error, result.error ?? "model_context_unavailable");
+    return result.output!;
+  }
+  async finishModel(
+    scope: Session,
+    operation: string,
+    response: ModelResponse,
+  ) {
+    this.current(scope);
+    const snapshot = this.context(scope);
+    check(snapshot.inference === operation, "context_inference_identity");
+    const output = await this.counter.count(
+      response.choices[0]!.message,
+      snapshot.tokenizer ?? "o200k_base",
+      snapshot.capacity,
+    );
+    const outcome = this.store.transaction(() => {
+      this.current(scope);
+      const c = this.context(scope);
+      check(
+        c.capacity === snapshot.capacity &&
+          c.reserved === snapshot.reserved &&
+          c.tokenizer === snapshot.tokenizer,
+        "context_configuration_changed",
+      );
+      check(c.inference === operation, "context_inference_identity");
+      const message = response.choices[0]!.message;
+      const calls = message.tool_calls ?? [];
+      check(
+        new Set(calls.map((call) => call.id)).size === calls.length,
+        "model_tool_call_duplicate",
+      );
+      c.calls = Object.create(null) as NonNullable<ContextState["calls"]>;
+      for (const call of calls) {
+        check(
+          !this.store.get(
+            "context-tool-result",
+            digest([scope.session, call.id]),
+          ),
+          "model_tool_call_duplicate",
+        );
+        const wrapper = JSON.parse(call.function.arguments);
+        check(typeof wrapper.input === "string", "model_tool_arguments");
+        const args = JSON.parse(wrapper.input);
+        check(
+          args && typeof args === "object" && !Array.isArray(args),
+          "model_tool_arguments",
+        );
+        c.calls[call.id] = {
+          tool: call.function.name.slice("harness_".length),
+          arguments: digest(args),
+          reserved: Math.floor(c.reserved / calls.length),
+        };
+      }
+      c.used =
+        Math.max(c.used, response.usage?.prompt_tokens ?? 0) +
+        Math.max(output, response.usage?.completion_tokens ?? 0);
+      c.measured = {
+        input: c.measured!.input,
+        output,
+        providerInput: response.usage?.prompt_tokens,
+        providerOutput: response.usage?.completion_tokens,
+      };
+      delete c.inference;
+      this.saveContext(scope, c);
+      this.store.audit(
+        "context.model_observed",
+        { operation, ...c.measured, used: c.used },
+        scope.repository,
+        scope.session,
+      );
+      if (c.used >= c.capacity) {
+        c.paused = true;
+        this.saveContext(scope, c);
+        this.invalidate(scope.session, "context_unavailable");
+        return false;
+      }
+      return true;
+    });
+    check(outcome, "model_context_unavailable");
+  }
+  endModel(scope: Session, operation: string) {
+    const c = this.context(scope);
+    if (c.inference === operation) {
+      delete c.inference;
+      this.saveContext(scope, c);
+    }
+  }
+  async completeTool(
+    scope: Session,
+    call: string,
+    tool: string,
+    args: unknown,
+    output: unknown,
+  ) {
+    this.current(scope);
+    const snapshot = this.context(scope);
+    const expectedCall =
+      snapshot.calls && Object.hasOwn(snapshot.calls, call)
+        ? snapshot.calls[call]
+        : undefined;
+    if (expectedCall)
+      check(
+        expectedCall.tool === tool && expectedCall.arguments === digest(args),
+        "tool_exchange_identity",
+      );
+    const valueHash = digest(output),
+      key = digest([scope.session, call]);
+    const replay = this.store.get<{
+      hash: string;
+      output: unknown;
+      tool: string;
+      arguments: string;
+    }>("context-tool-result", key);
+    if (replay) {
+      check(
+        replay.tool === tool && replay.arguments === digest(args),
+        "tool_exchange_identity",
+      );
+      check(replay.hash === valueHash, "tool_result_conflict");
+      return replay.output;
+    }
+    const allowance =
+      expectedCall?.reserved ?? Math.min(2048, snapshot.reserved);
+    const encoding = snapshot.tokenizer ?? "o200k_base";
+    const measured = await this.counter.count(output, encoding, allowance);
+    const result = this.store.transaction(() => {
+      this.current(scope);
+      const c = this.context(scope),
+        expected =
+          c.calls && Object.hasOwn(c.calls, call) ? c.calls[call] : undefined;
+      check(
+        c.capacity === snapshot.capacity &&
+          c.reserved === snapshot.reserved &&
+          c.tokenizer === snapshot.tokenizer &&
+          expected?.reserved === expectedCall?.reserved,
+        "context_exchange_changed",
+      );
+      if (expected)
+        check(
+          expected.tool === tool && expected.arguments === digest(args),
+          "tool_exchange_identity",
+        );
+      const prior = this.store.get<{
+        hash: string;
+        output: unknown;
+        tool: string;
+        arguments: string;
+      }>("context-tool-result", key);
+      if (prior) {
+        check(
+          prior.tool === tool && prior.arguments === digest(args),
+          "tool_exchange_identity",
+        );
+        check(prior.hash === valueHash, "tool_result_conflict");
+        return { output: prior.output };
+      }
+      let bounded = output;
+      let count = measured;
+      if (measured > allowance) {
+        const value = output as {
+          id?: string;
+          hash?: string;
+          content?: string;
+        } | null;
+        let original: Artifact | undefined;
+        if (
+          value &&
+          typeof value.id === "string" &&
+          typeof value.content === "string"
+        ) {
+          try {
+            const candidate = this.artifacts.get(scope, value.id);
+            if (
+              candidate.hash === value.hash &&
+              candidate.content === value.content
+            )
+              original = candidate;
+          } catch {
+            /* Unrecognized references remain untrusted output only. */
+          }
+        }
+        const artifact = this.artifacts.create(scope, {
+          kind: "tool-output",
+          content: JSON.stringify(output),
+          sources: original ? [original.id] : [],
+          dependencies: original?.valid ? [original.id] : [],
+        });
+        // Preserve an artifact's own ID when its content is too large to echo.
+        const metadata = original
+          ? { id: original.id, hash: original.hash, kind: original.kind }
+          : {};
+        bounded = {
+          ...metadata,
+          outputArtifact: artifact.id,
+          outputHash: artifact.hash,
+          trust: "untrusted",
+          truncated: true,
+        };
+        // The small reference uses a conservative byte count without another
+        // CPU job or an asynchronous database transaction.
+        count = Buffer.byteLength(JSON.stringify(bounded));
+      }
+      if (count > allowance || c.used + count > c.capacity) {
+        c.paused = true;
+        this.saveContext(scope, c);
+        this.invalidate(scope.session, "context_unavailable");
+        return { error: "tool_context_unavailable" };
+      }
+      c.used += count;
+      if (expected) expected.result = valueHash;
+      this.saveContext(scope, c);
+      this.store.put(
+        "context-tool-result",
+        key,
+        { hash: valueHash, output: bounded, tool, arguments: digest(args) },
+        scope.repository,
+        scope.session,
+      );
+      this.store.audit(
+        "context.tool_completed",
+        {
+          call,
+          tool,
+          tokens: count,
+          hash: valueHash,
+          truncated: bounded !== output,
+        },
+        scope.repository,
+        scope.session,
+      );
+      return { output: bounded };
+    });
+    check(!result.error, result.error ?? "tool_context_unavailable");
+    return result.output;
+  }
+  private saveContext(scope: Session, context: ContextState) {
+    this.store.put(
+      "context",
+      scope.session,
+      context,
+      scope.repository,
+      scope.session,
+    );
   }
   addOptional(scope: Session, tokens: number) {
     check(Number.isInteger(tokens) && tokens >= 0, "context_tokens");
@@ -232,7 +602,7 @@ export class Compaction {
   }
   accept(scope: Session, input: unknown): Checkpoint {
     const context = this.context(scope);
-    check(!context.exchange, "tool_exchange_incomplete");
+    check(!this.budget(scope).incompleteExchange, "tool_exchange_incomplete");
     try {
       return this.store.transaction(() => {
         const candidate = checkpointSchema.parse(input),
@@ -308,9 +678,7 @@ export class Compaction {
         latest.failures++;
         if (latest.failures >= 2) {
           latest.paused = true;
-          const session = this.identity.session(scope.session);
-          session.status = "paused";
-          this.identity.saveSession(session);
+          this.invalidate(scope.session, "compaction_failed");
         }
         this.store.put(
           "context",

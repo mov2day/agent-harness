@@ -25,6 +25,7 @@
     "test:opencode:specialists": "node --import tsx --test --test-reporter=spec conformance/live/specialists-opencode.test.ts"
   },
   "dependencies": {
+    "js-tiktoken": "1.0.21",
     "minimatch": "^10.0.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

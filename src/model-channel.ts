@@ -27,13 +27,40 @@ const toolName = z
   );
 const functionCall = z
   .object({
-    id: z.string(),
+    id: z.string().min(1).max(128),
     type: z.literal("function"),
     function: z
       .object({ name: toolName, arguments: z.string().max(2_000_000) })
       .strict(),
   })
   .strict();
+export const modelResponseSchema = z
+  .object({
+    choices: z
+      .array(
+        z
+          .object({
+            message: z
+              .object({
+                role: z.literal("assistant"),
+                content: z.string().nullable().optional(),
+                tool_calls: z.array(functionCall).max(32).optional(),
+              })
+              .passthrough(),
+          })
+          .passthrough(),
+      )
+      .length(1),
+    usage: z
+      .object({
+        prompt_tokens: z.number().int().nonnegative().max(2_000_000),
+        completion_tokens: z.number().int().nonnegative().max(2_000_000),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
+export type ModelResponse = z.infer<typeof modelResponseSchema>;
 const message = z
   .object({
     role: z.enum(["system", "developer", "user", "assistant", "tool"]),
@@ -123,6 +150,15 @@ const profileSchema = z
             upstream: z.string().min(1),
             reasoning: z.array(z.string().min(1)).min(1),
             maxOutputTokens: z.number().int().min(256).max(32_768),
+            contextWindow: z
+              .number()
+              .int()
+              .min(1024)
+              .max(2_000_000)
+              .default(32_768),
+            tokenizer: z
+              .enum(["o200k_base", "cl100k_base", "utf8_bytes"])
+              .default("o200k_base"),
           })
           .strict(),
       )
@@ -233,7 +269,20 @@ export class ModelChannel {
     });
     return { id: profile.id, models: profile.models.map((m) => m.id) };
   }
-  async send(op: Operation, signal: AbortSignal) {
+  configuration(scope: Session) {
+    const matches = this.store
+      .list<ModelProfile>("model-profile")
+      .flatMap((profile) => profileSchema.parse(profile).models)
+      .filter((model) => model.id === scope.model?.model);
+    check(matches.length === 1, "model_provider_not_configured");
+    const model = matches[0]!;
+    return {
+      tokenizer: model.tokenizer,
+      contextWindow: model.contextWindow,
+      maxOutputTokens: model.maxOutputTokens,
+    };
+  }
+  async send(op: Operation, signal: AbortSignal, contextOutputLimit?: number) {
     const current = this.operations.validate(op),
       scope = this.operations.identity.session(current.session),
       setting = scope.model;
@@ -255,6 +304,14 @@ export class ModelChannel {
     const requestedLimit =
       input.max_completion_tokens ?? input.max_tokens ?? model.maxOutputTokens;
     check(requestedLimit <= model.maxOutputTokens, "model_output_limit");
+    const outputLimit = Math.min(
+      requestedLimit,
+      contextOutputLimit ?? requestedLimit,
+    );
+    check(
+      Number.isInteger(outputLimit) && outputLimit > 0,
+      "model_context_unavailable",
+    );
     const endpoint = new URL(profile.endpoint);
     researchUrl(profile.endpoint, [endpoint.hostname]);
     const addresses = await this.resolve(endpoint.hostname, {
@@ -275,7 +332,7 @@ export class ModelChannel {
       stream: false,
       stream_options: undefined,
       max_tokens: undefined,
-      max_completion_tokens: requestedLimit,
+      max_completion_tokens: outputLimit,
       reasoning_effort:
         setting.reasoning === "none" ? undefined : setting.reasoning,
     });
@@ -328,12 +385,8 @@ export class ModelChannel {
       !body.includes(Buffer.from(credential)),
       "provider_credential_in_response",
     );
-    const response = JSON.parse(body.toString("utf8"));
-    check(
-      response &&
-        Array.isArray(response.choices) &&
-        response.choices.length === 1,
-      "model_response_invalid",
+    const response = modelResponseSchema.parse(
+      JSON.parse(body.toString("utf8")),
     );
     this.store.transaction(() =>
       this.store.audit(
@@ -344,6 +397,7 @@ export class ModelChannel {
           model: setting.model,
           address: target.address,
           hash: hash(body),
+          maxOutputTokens: outputLimit,
         },
         op.repository,
         op.session,
@@ -353,6 +407,7 @@ export class ModelChannel {
       response,
       profile: profile.id,
       hash: hash(body),
+      maxOutputTokens: outputLimit,
       trust: "untrusted" as const,
     };
   }

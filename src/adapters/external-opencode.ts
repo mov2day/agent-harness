@@ -84,9 +84,39 @@ export class ExternalOpenCode {
           return {
             ...relay,
             execute: async (request) => {
-              const operation = await relay.execute(request);
-              return request.tool === "delegate" && this.specialists
-                ? this.specialists.delegated(operation as Operation)
+              let operation: Operation;
+              try {
+                const result = (await relay.execute(request)) as Operation;
+                operation =
+                  request.tool === "delegate" && this.specialists
+                    ? ((await this.specialists.delegated(result)) as Operation)
+                    : result;
+              } catch (error) {
+                await this.bridge.completeTool(
+                  request.call,
+                  request.tool,
+                  request.args,
+                  {
+                    error:
+                      error instanceof Error
+                        ? error.message
+                        : "operation_failed",
+                  },
+                );
+                throw error;
+              }
+              const complete =
+                operation.status === "completed" && !operation.invalidated;
+              const bounded = await this.bridge.completeTool(
+                request.call,
+                request.tool,
+                request.args,
+                complete
+                  ? operation.result
+                  : { error: operation.error ?? operation.status },
+              );
+              return complete
+                ? { ...operation, result: bounded.output }
                 : operation;
             },
           };

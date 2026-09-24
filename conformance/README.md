@@ -40,6 +40,8 @@ On 2026-09-23 Linux image `c961779faf07` and the macOS host passed **73/73** tes
 
 The later Linux image `49f4107d4f7f` and macOS host passed **87/87** tests, type checking and production builds. The additional coverage includes durable specialist assignments, claim races, explicit artifact forwarding, retained-context isolation, interrupted/failed tasks, duplicate host delivery, late results after revocation, orphaned claims and failed cleanup pausing the Conductor. The Linux run uses the actual native file helper; live OpenCode orchestration was separately exercised from macOS as described below.
 
+On 2026-09-24 Linux image `462e8161047b` and the macOS host passed **95/95** tests, type checking and production builds. Added cases exercise local model-aware token counting, event-loop responsiveness, context ceilings, provider usage, incomplete exchanges, exact result identity/replay, large-result lineage, stale asynchronous results and invalid provider messages. These checks establish the accounting mechanism, not automatic runtime compaction.
+
 ## Live OpenCode transport
 
 On 2026-09-16, `npm run test:opencode:live` passed with the actual OpenCode **1.18.31** binary and plugin in image `785c96345416`, using the dedicated Colima daemon from the macOS host. The conversation traversed context retrieval, a streamed model response, a scoped artifact call, and a final answer. Probes confirmed raw-session spoof rejection, a denied native-shell request with no file effect, no external network, no host repository/socket access, and container removal.
@@ -61,6 +63,10 @@ On 2026-09-23, `npm run test:opencode:specialists` passed on the macOS host with
 The test completed 42 actual runtime model turns, ten assignments and all five reviewed workflow stages. It verified a single Reviewer retained its process across five tasks, each session had a separate connection, final artifacts retained specialist ownership and explicit input dependencies, and all seven containers had durable stopped records and were actually removed. Provider decisions and runtime certification are scripted/disposable fixtures. Human gates are disabled by explicit fixture policy; their version binding remains covered in the workflow tests. This test does not claim an actual code change or command execution in its implementation/execution stage artifacts.
 
 The test initially exposed missing context in actual provider requests, despite successful context retrieval. The pinned OpenCode hook keeps its original system array; the plugin now mutates that array in place. The passing scenario verifies the engine-assigned session/role reaches the provider. Earlier context-retrieval observations alone did not establish this behavior.
+
+### Live context accounting
+
+On 2026-09-24 the production engine integration and complete specialist workflow passed again on macOS using image `411216a2fdc7`. Model requests now traverse the background tokenizer and persisted context budgets. The integration asserts that full prompt accounting exceeds deliberately understated fixture usage, both denied and successful tool calls have durable completion records, and no exchange remains incomplete. The specialist run again completed 42 model turns, ten assignments, five stages and cleanup of seven containers. Provider responses and runtime certificates remain fixtures. Automatic compaction and Linux-host OpenCode orchestration are still pending.
 
 ## Authorization mechanism benchmark
 

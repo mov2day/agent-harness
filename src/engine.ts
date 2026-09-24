@@ -152,6 +152,9 @@ export class Engine {
         this.identity,
         this.artifacts,
       );
+      this.compaction.setInvalidator((session, reason) =>
+        this.operations.invalidate(session, reason),
+      );
       this.learning = new Learning(this.store, this.artifacts, this.operations);
       this.runtimes = initializedRuntimes = new Runtimes(
         this.store,
@@ -235,14 +238,25 @@ export class Engine {
       const scope = this.identity.session(op.session);
       switch (op.tool) {
         case "model": {
-          const result = await this.models.send(op, signal);
-          const artifact = this.artifacts.create(scope, {
-            kind: "model-response",
-            content: JSON.stringify(result.response),
-            dependencies: [],
-            sources: [],
-          });
-          return { ...result, artifact: artifact.id };
+          const outputLimit = await this.compaction.beginModel(
+            scope,
+            op.id,
+            op.args.request,
+            this.models.configuration(scope),
+          );
+          try {
+            const result = await this.models.send(op, signal, outputLimit);
+            await this.compaction.finishModel(scope, op.id, result.response);
+            const artifact = this.artifacts.create(scope, {
+              kind: "model-response",
+              content: JSON.stringify(result.response),
+              dependencies: [],
+              sources: [],
+            });
+            return { ...result, artifact: artifact.id };
+          } finally {
+            this.compaction.endModel(scope, op.id);
+          }
         }
         case "read": {
           const repo = this.repositories.verify(scope.repository),
@@ -407,6 +421,7 @@ export class Engine {
     clearInterval(this.healthCheck);
     this.containment.close();
     this.runtimes.close();
+    this.compaction.close();
     this.store.close();
     closeSync(this.lockHandle);
     unlinkSync(this.lock);

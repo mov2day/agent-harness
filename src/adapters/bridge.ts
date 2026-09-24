@@ -214,6 +214,18 @@ export class IntegrationBridge {
   async context() {
     return this.transport.request("/v1/context", {}, this.headers());
   }
+  completeTool(
+    call: string,
+    tool: string,
+    args: unknown,
+    output: unknown,
+  ): Promise<{ output: unknown }> {
+    return this.transport.request(
+      "/v1/context/tool-result",
+      { call, tool, args, output },
+      this.headers(),
+    );
+  }
   async model(request: unknown, idempotencyKey: string) {
     return this.transport.request(
       "/v1/model",
