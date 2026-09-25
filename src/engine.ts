@@ -341,6 +341,14 @@ export class Engine {
               return this.snapshots.capture(scope);
             case "get":
               return this.artifacts.get(scope, op.args.id);
+            case "page":
+              return this.artifacts.page(
+                scope,
+                op.args.id,
+                op.args.hash,
+                op.args.offset,
+                op.args.bytes,
+              );
             case "evidence":
               return this.artifacts.source(scope, op.args.id);
             case "share":

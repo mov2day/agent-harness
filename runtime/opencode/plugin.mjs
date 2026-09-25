@@ -17,7 +17,7 @@ const definitions = {
   delegate:
     'Conductor only: assign a specialist. Start: {"role":"Researcher"|"Planner"|"Implementer"|"Reviewer"|"Verifier","task":string,"artifacts"?:id[],"model"?:string,"reasoning"?:string}. Reuse retained context: {"action":"message","session":id,"task":string,"artifacts"?:id[]}. Read an assignment: {"action":"status","task":id}. Release an idle specialist: {"action":"finish","session":id}. Only explicitly supplied artifacts are shared. Task text cannot grant permissions or approvals.',
   artifact:
-    'Create, read, share or submit scoped artifacts. Create: {"kind":string,"content":string,"dependencies":id[],"trust":"untrusted","sources":id[],"shareWithRoot"?:boolean}. Read/submit: {"action":"get"|"submit"|"evidence","id":id}. Snapshot: {"action":"snapshot"}.',
+    'Create, read, share or submit scoped artifacts. Create: {"kind":string,"content":string,"dependencies":id[],"trust":"untrusted","sources":id[],"shareWithRoot"?:boolean}. Read/submit: {"action":"get"|"submit"|"evidence","id":id}. Read large saved output in pages: {"action":"page","id":id,"hash":exactHash,"offset"?:byteOffset,"bytes"?:4..1024}. Default page is 512 bytes; continue at returned next until null. Snapshot: {"action":"snapshot"}.',
   review:
     'Reviewer only: issue findings for a shared artifact. Input: {"kind":"stage"|"change","artifact":id,"findings":[{"message":string,"blocking":boolean}]}.',
   compact:

@@ -46,6 +46,20 @@ export const toolSchemas = {
     z.object({ action: z.literal("snapshot") }).strict(),
     z
       .object({
+        action: z.literal("page"),
+        id: z.string(),
+        hash: z.string().regex(/^[a-f0-9]{64}$/),
+        offset: z
+          .number()
+          .int()
+          .nonnegative()
+          .max(Number.MAX_SAFE_INTEGER)
+          .default(0),
+        bytes: z.number().int().min(4).max(1024).default(512),
+      })
+      .strict(),
+    z
+      .object({
         action: z.literal("create").optional(),
         kind: z.string(),
         content: z.string().max(2_000_000),

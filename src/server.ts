@@ -447,6 +447,16 @@ export function createEngineServer(
               tool: "artifact",
               args: { action: "get", id: data.id },
             },
+            "/v1/artifacts/page": {
+              tool: "artifact",
+              args: {
+                action: "page",
+                id: data.id,
+                hash: data.hash,
+                offset: data.offset,
+                bytes: data.bytes,
+              },
+            },
             "/v1/artifacts/share": {
               tool: "artifact",
               args: { action: "share", id: data.id, session: data.session },

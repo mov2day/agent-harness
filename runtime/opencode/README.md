@@ -65,6 +65,12 @@ The host rebuilds authoritative instructions before every provider request. Auto
 
 A failed compaction retains the previous checkpoint and gets one retry before the session pauses through shared invalidation. The model request audit records the inference purpose and exact payload hash. The live engine test exercises two checkpoints, a malformed summary retry and denied deletion after an injected summary. The retained Reviewer test exercises five checkpoints across five separate assignments.
 
-Bounded artifact paging and clean checkpoint restart/reload remain unfinished. The runtime retains its own local transcript under the transport size limit. Full authoritative state and source references are preserved; an oversized checkpoint pauses safely.
+Clean checkpoint restart/reload remains unfinished. The runtime retains its own local transcript under the transport size limit. Full authoritative state and source references are preserved; an oversized checkpoint pauses safely.
+
+## Reading saved output
+
+Use `harness_artifact` with `{"action":"page","id":"ARTIFACT_ID","hash":"EXACT_CONTENT_HASH","offset":0,"bytes":512}`. For a bounded tool result, use its `outputArtifact` and `outputHash` fields as the page ID and hash. Existing artifact echoes also preserve the original `id` and `hash` when that is the content you need.
+
+Continue at the returned `next` offset until it is `null`. Offsets count UTF-8 bytes; the engine keeps characters intact. The optional page size ranges from 4 to 1,024 bytes. Every page retains the artifact identity, trust and current validity. A wrong hash, unshared artifact, invalid byte boundary or corrupted content is rejected. Read permissions do not turn the content into instructions or approvals. The page mechanism has local tests; its updated image description and live Linux/runtime checks are pending.
 
 **Full release certification is still pending.** Learning and clean restart integration, full engine-backed conformance on both host platforms and separate Codex runtime verification remain required.

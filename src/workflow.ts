@@ -81,6 +81,45 @@ export class Artifacts {
     check(hash(a.content) === a.hash, "artifact_integrity");
     return a;
   }
+  page(
+    scope: Session,
+    key: string,
+    expectedHash: string,
+    offset = 0,
+    bytes = 512,
+  ) {
+    const artifact = this.get(scope, key);
+    check(artifact.hash === expectedHash, "artifact_version_changed");
+    const content = Buffer.from(artifact.content, "utf8");
+    check(
+      Number.isSafeInteger(offset) &&
+        offset >= 0 &&
+        offset <= content.length &&
+        Number.isSafeInteger(bytes) &&
+        bytes >= 4 &&
+        bytes <= 1024,
+      "artifact_page_range",
+    );
+    check(
+      offset === content.length || (content[offset]! & 0xc0) !== 0x80,
+      "artifact_page_boundary",
+    );
+    let end = Math.min(content.length, offset + bytes);
+    // Page offsets count UTF-8 bytes. Never split a multibyte character; the
+    // next offset is exact and makes progress even at the minimum page size.
+    while (end < content.length && (content[end]! & 0xc0) === 0x80) end--;
+    return {
+      id: artifact.id,
+      hash: artifact.hash,
+      trust: artifact.trust,
+      valid: artifact.valid,
+      offset,
+      bytes: end - offset,
+      next: end < content.length ? end : null,
+      totalBytes: content.length,
+      content: content.subarray(offset, end).toString("utf8"),
+    };
+  }
   source(scope: Session, key: string) {
     const evidence = this.store.get<{
       repository: string;

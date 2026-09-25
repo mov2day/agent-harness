@@ -76,6 +76,10 @@ The live specialist scenario passed with the same image: 52 model requests, ten 
 
 The Linux rebuild for this milestone was not executed: automatic approval review reached its usage limit. The last Linux evidence remains the 95-test image `462e8161047b`; automatic compaction still needs its Linux rerun.
 
+### Bounded artifact reads
+
+The subsequent page-read change passed **18/18 affected tests**, type checking and the production build on macOS. Two new tests reconstruct multilingual large-output content with exact hashes and UTF-8-safe offsets, retain untrusted provenance/validity, and reject incorrect versions, unauthorized scopes, malformed ranges and corrupted content. The 105-test full-suite result above predates this addition. No updated runtime image or Linux result is claimed for the page-read change; those checks require the approval-review service to become available.
+
 ## Authorization mechanism benchmark
 
 ```sh
