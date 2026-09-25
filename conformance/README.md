@@ -80,6 +80,16 @@ The Linux rebuild for this milestone was not executed: automatic approval review
 
 The subsequent page-read change passed **18/18 affected tests**, type checking and the production build on macOS. Two new tests reconstruct multilingual large-output content with exact hashes and UTF-8-safe offsets, retain untrusted provenance/validity, and reject incorrect versions, unauthorized scopes, malformed ranges and corrupted content. The 105-test full-suite result above predates this addition. No updated runtime image or Linux result is claimed for the page-read change; those checks require the approval-review service to become available.
 
+### Approved materials and clean restart
+
+Later on 2026-09-25 the approval-service limit cleared. The macOS host and Linux arm64 image `9002e8d79ee2` passed **116/116** tests, type checking and production build. This supersedes the earlier pending Linux rerun and covers automatic compaction, UTF-8 artifact pages, exact approved-material loading, integrity/provenance checks, rollback restoration and clean restart boundaries.
+
+The updated live engine test passed on macOS with runtime image `sha256:0fbecf12d742902fbfbcc8bac347b269f9bbe80a1dcb6b05310e75f9ab5a80be`. After its original compaction checks, it promoted a fixture-evaluated instruction and started a separate root using the same integration and restored engine goal. Actual provider payloads included the approved content, excluded old runtime narrative/artifacts, and contained no inherited approvals. A requested deletion was still denied without a file effect. After rollback, a third root received the goal without the revoked text. The run completed nine continuation requests plus three summary requests and verified stopped records and actual removal for all three containers.
+
+Unit tests also verify fresh specialist checkpoints, exact explicit evidence lineage, root/repository/integration restrictions, inactive-source requirements, all-child cleanup, interrupted-effect reconciliation, duplicate restart ownership and atomic rejection of oversized state. Runtime/provider certificates and evaluation scores remain disposable fixtures; this is mechanism evidence, not production evaluation or independent release certification. Linux-host OpenCode orchestration remains separate from the Linux container suite.
+
+The complete live specialist workflow also passed again with image `0fbecf12d742`: 52 model requests including five checkpoints in the retained Reviewer, ten completed assignments, five reviewed stages and actual removal of all seven containers. Its fixture-policy and scripted-provider limitations remain unchanged.
+
 ## Authorization mechanism benchmark
 
 ```sh

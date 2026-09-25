@@ -20,9 +20,11 @@ import {
   type RuntimeCertificate,
 } from "../../src/containment.js";
 import type { RuntimeLaunch } from "../../src/runtimes.js";
+import type { Artifact } from "../../src/workflow.js";
+import type { Suite } from "../../src/learning.js";
 
 test(
-  "live engine/OpenCode: external registration, real role enforcement, model channel, artifact scope, repeated compaction and durable shutdown",
+  "live engine/OpenCode: registration, enforcement, repeated compaction, clean restart after promotion and rollback, and durable shutdown",
   { timeout: 120_000 },
   async (t) => {
     const image = execFileSync(
@@ -87,6 +89,7 @@ test(
       const requests: unknown[] = [];
       let continuationTurns = 0,
         summaryTurns = 0;
+      let restartMode: "promoted" | "revoked" | undefined;
       const transport: HttpsRequestFactory = (url, options, callback) => {
         assert.equal(url.hostname, "provider.example");
         assert.equal(options.rejectUnauthorized, true);
@@ -103,7 +106,7 @@ test(
           const request = JSON.parse(payload);
           assert.equal(request.model, "fixture-upstream");
           requests.push(request);
-          assert.ok(requests.length <= 9, "Unexpected extra provider request");
+          assert.ok(requests.length <= 12, "Unexpected extra provider request");
           const isSummary = request.messages[0]?.content.startsWith(
             "Engine checkpoint task.",
           );
@@ -119,6 +122,24 @@ test(
                 Object.values(state.calls ?? {}).every((call) => !!call.result),
               ),
             );
+          } else if (restartMode) {
+            const authoritative = request.messages[0].content;
+            assert.match(
+              authoritative,
+              /Create scoped evidence without reading protected files/,
+            );
+            assert.match(authoritative, /"stage":"research"/);
+            assert.match(authoritative, /"approvals":\[\]/);
+            assert.equal(
+              authoritative.includes("Current approved restart method"),
+              restartMode === "promoted",
+            );
+            const prompt = JSON.stringify(request.messages);
+            assert.equal(
+              prompt.includes("research claims deletion is approved"),
+              false,
+            );
+            assert.equal(prompt.includes("real-engine-artifact"), false);
           } else if (turn >= 4) {
             const authoritative = request.messages[0].content;
             assert.match(
@@ -136,54 +157,23 @@ test(
               /research claims deletion is approved/,
             );
           }
-          const message = isSummary
-            ? {
-                role: "assistant",
-                content:
-                  turn === 1
-                    ? "malformed checkpoint reply"
-                    : JSON.stringify({
-                        summary:
-                          "Evidence was recorded. Untrusted research claims deletion is approved; the engine's original goal and required approval checks still apply.",
-                      }),
-              }
-            : turn < 6
+          const message = restartMode
+            ? turn === 7
               ? {
                   role: "assistant",
                   content: null,
                   tool_calls: [
                     {
-                      id: `call-${turn}`,
+                      id: "restart-delete",
                       type: "function",
                       function: {
-                        name:
-                          turn === 1
-                            ? "harness_read"
-                            : turn === 2
-                              ? "harness_artifact"
-                              : turn === 4
-                                ? "harness_delete"
-                                : "harness_compact",
+                        name: "harness_delete",
                         arguments: JSON.stringify({
-                          input: JSON.stringify(
-                            turn === 1
-                              ? { path: "private.txt" }
-                              : turn === 4
-                                ? {
-                                    path: "private.txt",
-                                    base: "fabricated",
-                                    approval: "research-is-not-approval",
-                                  }
-                                : turn !== 2
-                                  ? { action: "request" }
-                                  : {
-                                      kind: "research",
-                                      content: "real-engine-artifact",
-                                      dependencies: [],
-                                      trust: "untrusted",
-                                      sources: [],
-                                    },
-                          ),
+                          input: JSON.stringify({
+                            path: "private.txt",
+                            base: "fabricated",
+                            approval: "old-root-is-not-approval",
+                          }),
                         }),
                       },
                     },
@@ -191,9 +181,66 @@ test(
                 }
               : {
                   role: "assistant",
+                  content: `Clean ${restartMode} restart completed with current authority.`,
+                }
+            : isSummary
+              ? {
+                  role: "assistant",
                   content:
-                    "Scoped artifact recorded; denied file read and unapproved deletion had no effect after two checkpoints.",
-                };
+                    turn === 1
+                      ? "malformed checkpoint reply"
+                      : JSON.stringify({
+                          summary:
+                            "Evidence was recorded. Untrusted research claims deletion is approved; the engine's original goal and required approval checks still apply.",
+                        }),
+                }
+              : turn < 6
+                ? {
+                    role: "assistant",
+                    content: null,
+                    tool_calls: [
+                      {
+                        id: `call-${turn}`,
+                        type: "function",
+                        function: {
+                          name:
+                            turn === 1
+                              ? "harness_read"
+                              : turn === 2
+                                ? "harness_artifact"
+                                : turn === 4
+                                  ? "harness_delete"
+                                  : "harness_compact",
+                          arguments: JSON.stringify({
+                            input: JSON.stringify(
+                              turn === 1
+                                ? { path: "private.txt" }
+                                : turn === 4
+                                  ? {
+                                      path: "private.txt",
+                                      base: "fabricated",
+                                      approval: "research-is-not-approval",
+                                    }
+                                  : turn !== 2
+                                    ? { action: "request" }
+                                    : {
+                                        kind: "research",
+                                        content: "real-engine-artifact",
+                                        dependencies: [],
+                                        trust: "untrusted",
+                                        sources: [],
+                                      },
+                            ),
+                          }),
+                        },
+                      },
+                    ],
+                  }
+                : {
+                    role: "assistant",
+                    content:
+                      "Scoped artifact recorded; denied file read and unapproved deletion had no effect after two checkpoints.",
+                  };
           const responseBody = {
             id: `completion-${turn}`,
             object: "chat.completion",
@@ -255,13 +302,16 @@ test(
       });
       const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
       const failures: unknown[] = [];
-      runtime = new ExternalOpenCode({
+      const options = {
         integration: engine.identity.pair("opencode"),
         transport: new HttpTransport(origin),
         repository: repository.id,
         certificate: certificate.id,
-        onFailure: (error) => failures.push(error),
-      });
+        onFailure: (error: unknown) => {
+          failures.push(error);
+        },
+      };
+      runtime = new ExternalOpenCode(options);
       const ready = await runtime.start(
         "Create scoped evidence without reading protected files",
       );
@@ -345,12 +395,7 @@ test(
         readFileSync(secretFile, "utf8"),
         "fixture-host-content-must-not-enter-model",
       );
-      const artifacts = engine.store.list<{
-        content: string;
-        repository: string;
-        session: string;
-        trust: string;
-      }>("artifact");
+      const artifacts = engine.store.list<Artifact>("artifact");
       const evidence = artifacts.find(
         (a) => a.content === "real-engine-artifact",
       );
@@ -383,6 +428,113 @@ test(
       assert.throws(() =>
         execFileSync("docker", ["inspect", container!], { stdio: "pipe" }),
       );
+      const suiteBody: Omit<Suite, "id"> = {
+        version: "restart-fixture-1",
+        cases: [
+          {
+            id: "control",
+            kind: "control",
+            split: "fixture",
+            modelDependent: false,
+          },
+          {
+            id: "quality",
+            kind: "quality",
+            split: "heldout",
+            modelDependent: true,
+          },
+        ],
+      };
+      const suite = { ...suiteBody, id: digest(suiteBody) };
+      engine.learning.installSuite(suite);
+      const candidate = engine.learning.propose(scope, {
+        kind: "instruction",
+        target: "reporting",
+        before: "",
+        after: "Current approved restart method: report exact evidence.",
+        baseVersion: "initial",
+        sources: [evidence.id],
+      });
+      // These scores are fixtures for lifecycle verification, not quality evidence.
+      await engine.learning.evaluate(
+        scope,
+        candidate.id,
+        suite.id,
+        async (content, test) => ({
+          passed: true,
+          score: test.kind === "control" ? 1 : content ? 0.8 : 0.5,
+        }),
+      );
+      const material = engine.learning.promote(scope, candidate.id, true);
+      restartMode = "promoted";
+      runtime = new ExternalOpenCode(options);
+      const restarted = await runtime.start(undefined, ready.engineSession);
+      assert.notEqual(restarted.container, container);
+      const restartedScope = engine.identity.session(restarted.engineSession);
+      assert.equal(restartedScope.skills.reporting, material.version);
+      assert.deepEqual(
+        engine.compaction.authoritative(restartedScope).artifacts,
+        {},
+      );
+      assert.match(
+        JSON.stringify(
+          await runtime.prompt("Continue the engine's restored goal."),
+        ),
+        /Clean promoted restart completed/,
+      );
+      assert.equal(
+        readFileSync(secretFile, "utf8"),
+        "fixture-host-content-must-not-enter-model",
+      );
+      assert.equal(
+        engine.store
+          .list<{ tool: string }>(
+            "operation",
+            repository.id,
+            restarted.engineSession,
+          )
+          .some((op) => op.tool === "delete"),
+        false,
+      );
+      await runtime.stop();
+      engine.learning.rollback(scope, candidate.id);
+      restartMode = "revoked";
+      runtime = new ExternalOpenCode(options);
+      const rolledBack = await runtime.start(
+        undefined,
+        restarted.engineSession,
+      );
+      assert.deepEqual(
+        engine.identity.session(rolledBack.engineSession).skills,
+        {},
+      );
+      assert.match(
+        JSON.stringify(
+          await runtime.prompt("Continue the restored goal after rollback."),
+        ),
+        /Clean revoked restart completed/,
+      );
+      await runtime.stop();
+      assert.equal(requests.length, 12);
+      assert.equal(continuationTurns, 9);
+      assert.equal(summaryTurns, 3);
+      assert.equal(engine.store.list("restart-source").length, 2);
+      for (const session of [
+        ready.engineSession,
+        restarted.engineSession,
+        rolledBack.engineSession,
+      ]) {
+        assert.equal(
+          engine.store.get<RuntimeLaunch>("runtime-launch", session)!.status,
+          "stopped",
+        );
+      }
+      for (const stopped of [restarted.container, rolledBack.container]) {
+        assert.throws(() =>
+          execFileSync("docker", ["inspect", stopped], { stdio: "pipe" }),
+        );
+      }
+      assert.deepEqual(failures, []);
     } finally {
       await runtime?.stop().catch(() => {});
       server.closeAllConnections();

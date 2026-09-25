@@ -4,7 +4,7 @@ import { z } from "zod";
 import { check, digest, type Session } from "./core.js";
 import type { Store } from "./store.js";
 import type { Identity } from "./identity.js";
-import type { Operations } from "./operations.js";
+import type { Operations, Operation } from "./operations.js";
 import type { Compaction } from "./compaction.js";
 import type { Containment, ContainerInspection } from "./containment.js";
 
@@ -69,13 +69,28 @@ export interface RuntimeLaunch {
     | "requires_reconciliation";
   created: number;
   error?: string;
+  restartedFrom?: string;
+  checkpoint?: string;
+}
+export interface RestartRecord {
+  from: string;
+  to: string;
+  repository: string;
+  authorityHash: string;
+  previousCheckpoint?: string;
+  checkpoint: string;
 }
 export const runtimePrepareSchema = z
   .object({
     certificate: z.string(),
     goal: z.string().min(1).max(64_000).optional(),
+    restartFrom: z.string().uuid().optional(),
   })
-  .strict();
+  .strict()
+  .refine(
+    (request) => !(request.goal && request.restartFrom),
+    "Choose a new goal or a restart source",
+  );
 
 /** The engine records launch intent before the trusted, externally started
  * bridge creates a container. This service never launches a root process. */
@@ -97,7 +112,7 @@ export class Runtimes {
     const certificate = this.containment.forSession(scope, request.certificate);
     check(scope.model, "model_not_assigned");
     check(
-      !request.goal ||
+      !(request.goal || request.restartFrom) ||
         (scope.role === "Conductor" && scope.root === scope.session),
       "root_goal_required",
     );
@@ -151,6 +166,15 @@ export class Runtimes {
       }
       if (!this.store.get("context", scope.session))
         this.compaction.configure(scope, 32768, 8192);
+      if (request.restartFrom) {
+        const restart = this.restart(scope, request.restartFrom);
+        launch.restartedFrom = restart.from;
+        launch.checkpoint = restart.checkpoint;
+      } else if (scope.parent && this.store.get("restart-target", scope.root)) {
+        // Specialists admitted by a restarted root always use fresh processes
+        // and checkpoints with the new root's explicitly shared task evidence.
+        launch.checkpoint = this.compaction.cleanCheckpoint(scope).id;
+      }
       this.save(launch);
       this.store.audit(
         "runtime.launch_prepared",
@@ -166,6 +190,88 @@ export class Runtimes {
       );
       return launch;
     });
+  }
+  private restart(scope: Session, source: string): RestartRecord {
+    const previous = this.identity.session(source);
+    check(
+      previous.session === previous.root &&
+        !previous.parent &&
+        previous.role === "Conductor" &&
+        previous.session !== scope.session &&
+        previous.repository === scope.repository &&
+        previous.integration === scope.integration,
+      "restart_scope",
+    );
+    check(!this.store.get("restart-source", source), "restart_already_claimed");
+    const family = this.store
+      .list<Session>("session", scope.repository)
+      .filter((session) => session.root === source);
+    check(
+      family.every((session) => session.status !== "active"),
+      "restart_source_active",
+    );
+    const members = new Set(family.map((session) => session.session));
+    check(
+      this.store
+        .list<RuntimeLaunch>("runtime-launch", scope.repository)
+        .filter((launch) => members.has(launch.session))
+        .every((launch) => launch.status === "stopped"),
+      "restart_cleanup_required",
+    );
+    check(
+      this.store
+        .list<Operation>("operation", scope.repository)
+        .filter((operation) => members.has(operation.session))
+        .every((operation) =>
+          ["completed", "failed", "cancelled"].includes(operation.status),
+        ),
+      "restart_reconciliation_required",
+    );
+    check(!this.store.get("authority", scope.root), "authority_already_set");
+    const state = this.compaction.authoritative(previous);
+    const authority = {
+      goals: state.goals,
+      constraints: state.constraints,
+      decisions: state.decisions,
+      findings: state.findings,
+    };
+    check(authority.goals.length > 0, "restart_goal_missing");
+    // Reviews and stage progress must be earned again under current authority.
+    // Old artifacts remain in their original session until explicitly shared.
+    this.store.put(
+      "authority",
+      scope.root,
+      authority,
+      scope.repository,
+      scope.root,
+    );
+    const checkpoint = this.compaction.cleanCheckpoint(scope);
+    const record: RestartRecord = {
+      from: source,
+      to: scope.session,
+      repository: scope.repository,
+      authorityHash: digest(authority),
+      previousCheckpoint: this.store.get<{ checkpoint?: string }>(
+        "context",
+        source,
+      )?.checkpoint,
+      checkpoint: checkpoint.id,
+    };
+    this.store.put("restart-source", source, record, scope.repository, source);
+    this.store.put(
+      "restart-target",
+      scope.session,
+      record,
+      scope.repository,
+      scope.session,
+    );
+    this.store.audit(
+      "runtime.clean_restart_prepared",
+      record,
+      scope.repository,
+      scope.session,
+    );
+    return record;
   }
   async attach(token: string, connection: string, container: string) {
     const scope = this.identity.authenticate(token, connection);

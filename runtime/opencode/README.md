@@ -47,6 +47,14 @@ Use `--once` to stop after the first completed runtime turn. Otherwise, the host
 
 Before container creation, the engine durably records the exact image, name, connection, session, certificate, model and initial operator goal. Attachment rechecks authority and independently inspects the container. A retry cannot replace an attached runtime or change the original launch request. Revocation, termination and restart stop protected operations and trigger cleanup of the recorded process. Unknown creation outcomes, identity mismatches and removal failures remain visible under **Audit → Runtime cleanup**; the retry action never removes a container whose recorded identity differs.
 
+### Restart after changed instructions or rollback
+
+From the external host terminal, use the same repository, pairing and current certificate options, replacing `--goal` with `--restart-from PREVIOUS_ROOT_ID`. The source must be an inactive root from that repository and integration. Every old root/specialist runtime must have a recorded stopped outcome, and interrupted effects must be reconciled before restart is admitted. The web controls manage cleanup and reconciliation; they do not launch the replacement root.
+
+The replacement registers with a new identity, connection and capabilities, captures current policy/model/instruction versions, and starts from a clean checkpoint of the engine's goals, constraints, decisions and findings. It begins at the research stage with fresh review gates. Prior approvals, runtime messages, checkpoint narratives and session artifacts stay in the old session. New specialists use fresh processes and clean checkpoints with only explicitly shared task evidence. No interrupted tool or specialist assignment is replayed.
+
+Restart preparation is atomic and an exact retry is idempotent. A previous root can have one recorded successor; restart that successor if another recovery is needed. An oversized authoritative state or unresolved cleanup leaves no partial restart claim. The original checkpoints and the private restart linkage remain available for audit.
+
 ## Specialist assignments
 
 The Conductor uses `harness_delegate` with a role, task and explicit artifact IDs. The host first obtains engine admission and a durable assignment, then claims it with credentials kept outside the runtime. The specialist gets a separate contained process and connection. Its final text becomes an untrusted artifact owned by that specialist and shared with the root; it cannot create approvals.
@@ -65,7 +73,7 @@ The host rebuilds authoritative instructions before every provider request. Auto
 
 A failed compaction retains the previous checkpoint and gets one retry before the session pauses through shared invalidation. The model request audit records the inference purpose and exact payload hash. The live engine test exercises two checkpoints, a malformed summary retry and denied deletion after an injected summary. The retained Reviewer test exercises five checkpoints across five separate assignments.
 
-Clean checkpoint restart/reload remains unfinished. The runtime retains its own local transcript under the transport size limit. Full authoritative state and source references are preserved; an oversized checkpoint pauses safely.
+Clean restart uses the external launcher path above. The runtime retains its own local transcript under the transport size limit. Full authoritative state and source references are preserved; an oversized checkpoint pauses safely.
 
 ## Approved instructions and rollback
 
@@ -77,6 +85,6 @@ Promotion and rollback invalidate affected sessions. Rollback restores the previ
 
 Use `harness_artifact` with `{"action":"page","id":"ARTIFACT_ID","hash":"EXACT_CONTENT_HASH","offset":0,"bytes":512}`. For a bounded tool result, use its `outputArtifact` and `outputHash` fields as the page ID and hash. Existing artifact echoes also preserve the original `id` and `hash` when that is the content you need.
 
-Continue at the returned `next` offset until it is `null`. Offsets count UTF-8 bytes; the engine keeps characters intact. The optional page size ranges from 4 to 1,024 bytes. Every page retains the artifact identity, trust and current validity. A wrong hash, unshared artifact, invalid byte boundary or corrupted content is rejected. Read permissions do not turn the content into instructions or approvals. The page mechanism has local tests; its updated image description and live Linux/runtime checks are pending.
+Continue at the returned `next` offset until it is `null`. Offsets count UTF-8 bytes; the engine keeps characters intact. The optional page size ranges from 4 to 1,024 bytes. Every page retains the artifact identity, trust and current validity. A wrong hash, unshared artifact, invalid byte boundary or corrupted content is rejected. Read permissions do not turn the content into instructions or approvals. The page mechanism passes unit tests on macOS and Linux; its description is in the rebuilt runtime image. A model-driven page-reading scenario is not yet part of the live suite.
 
-**Full release certification is still pending.** Learning and clean restart integration, full engine-backed conformance on both host platforms and separate Codex runtime verification remain required.
+**Full release certification is still pending.** Production learning evaluation, full engine-backed conformance on both host platforms and separate Codex runtime verification remain required. Live tests use scripted provider responses and disposable runtime certificates.

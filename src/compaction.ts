@@ -144,6 +144,43 @@ export class Compaction {
     );
     return c;
   }
+  /** A fresh process begins with engine state and explicit evidence references.
+   * Retained runtime messages and prior checkpoint narrative are never copied. */
+  cleanCheckpoint(scope: Session) {
+    this.current(scope);
+    const context = this.context(scope);
+    check(
+      !context.checkpoint &&
+        !context.history &&
+        context.used === 0 &&
+        !this.budget(scope).incompleteExchange,
+      "context_already_started",
+    );
+    this.identity.materials(scope);
+    const state = this.authoritative(scope);
+    const sources = new Set<string>();
+    for (const key of Object.keys(state.artifacts)) {
+      const artifact = this.artifacts.get(scope, key);
+      sources.add(key);
+      for (const source of artifact.sources) sources.add(source);
+    }
+    const checkpoint = this.accept(scope, {
+      state,
+      segments: sources.size
+        ? [
+            {
+              text: "Explicitly shared task evidence remains untrusted reference material.",
+              sources: [...sources].sort(),
+              trust: "untrusted",
+            },
+          ]
+        : [],
+    });
+    const fresh = this.context(scope);
+    fresh.history = { checkpoint: checkpoint.id, prefix: [] };
+    this.saveContext(scope, fresh);
+    return checkpoint;
+  }
   authoritative(scope: Session): AuthoritativeState {
     const root = this.identity.session(scope.root),
       base = this.store.get<

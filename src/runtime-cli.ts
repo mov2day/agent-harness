@@ -19,7 +19,7 @@ function option(flag: string) {
 }
 if (args.includes("--help") || !args.length) {
   process.stdout.write(
-    "Externally start a contained OpenCode session.\n\nRequired: --repository ID --repository-path PATH --pairing FILE --certificate ID --goal TEXT\nOptional: --engine http://127.0.0.1:4317 --once\n\nRun the engine separately. The owner must install current runtime evidence and configure role models first. The web interface does not launch root sessions.\n",
+    "Externally start a contained OpenCode session.\n\nRequired: --repository ID --repository-path PATH --pairing FILE --certificate ID\nChoose: --goal TEXT or --restart-from PREVIOUS_ROOT_ID\nOptional: --engine http://127.0.0.1:4317 --once\n\nRun the engine separately. The owner must install current runtime evidence and configure role models first. The web interface does not launch root sessions. Restart requires completed cleanup and reconciliation of the old root and its specialists.\n",
   );
 } else {
   let runtime: ExternalOpenCode | undefined;
@@ -32,9 +32,14 @@ if (args.includes("--help") || !args.length) {
       repositoryPath = option("--repository-path"),
       pairing = option("--pairing"),
       certificate = option("--certificate"),
-      goal = option("--goal");
+      goal = option("--goal"),
+      restartFrom = option("--restart-from");
     check(
-      repository && repositoryPath && pairing && certificate && goal,
+      repository &&
+        repositoryPath &&
+        pairing &&
+        certificate &&
+        !!goal !== !!restartFrom,
       "runtime_arguments_required",
     );
     const integration = loadPairing(resolve(pairing), [
@@ -60,9 +65,11 @@ if (args.includes("--help") || !args.length) {
     };
     process.once("SIGINT", interrupt);
     process.once("SIGTERM", interrupt);
-    const session = await runtime.start(goal);
+    const session = await runtime.start(goal, restartFrom);
     process.stdout.write(`Registered session: ${session.engineSession}\n`);
-    let prompt = goal;
+    let prompt =
+      goal ??
+      "Continue the engine's restored goal from the clean checkpoint, following current approved instructions and review gates.";
     for (;;) {
       const result = (await runtime.prompt(prompt)) as {
         info?: { error?: unknown };

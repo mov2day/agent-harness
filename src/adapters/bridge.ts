@@ -284,10 +284,14 @@ export class IntegrationBridge {
       this.headers(),
     );
   }
-  prepareRuntime(certificate: string, goal?: string): Promise<RuntimeLaunch> {
+  prepareRuntime(
+    certificate: string,
+    goal?: string,
+    restartFrom?: string,
+  ): Promise<RuntimeLaunch> {
     return this.transport.request(
       "/v1/runtime/prepare",
-      { certificate, goal },
+      { certificate, goal, restartFrom },
       this.headers(),
     );
   }

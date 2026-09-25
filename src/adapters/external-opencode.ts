@@ -61,8 +61,9 @@ export class ExternalOpenCode {
       this.options.onFailure?.(cleanupError),
     );
   }
-  async start(goal?: string) {
+  async start(goal?: string, restartFrom?: string) {
     check(!this.started, "runtime_already_started");
+    check(!restartFrom || !this.options.specialist, "root_restart_required");
     this.started = true;
     try {
       const session = this.options.specialist
@@ -72,6 +73,7 @@ export class ExternalOpenCode {
       const launch = await this.bridge.prepareRuntime(
         this.options.certificate,
         goal,
+        restartFrom,
       );
       this.runtime = new ContainedOpenCode({
         image: launch.image,
