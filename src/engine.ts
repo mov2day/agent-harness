@@ -22,6 +22,7 @@ import { Artifacts, Workflow } from "./workflow.js";
 import { Compaction } from "./compaction.js";
 import { ContextWindow } from "./context-window.js";
 import { Learning } from "./learning.js";
+import { Evaluations } from "./evaluations.js";
 import { ModelChannel } from "./model-channel.js";
 import { Runtimes, type RuntimeLaunch } from "./runtimes.js";
 import { Specialists, type SpecialistTask } from "./specialists.js";
@@ -50,6 +51,7 @@ export class Engine {
   readonly compaction: Compaction;
   readonly contextWindow: ContextWindow;
   readonly learning: Learning;
+  readonly evaluations: Evaluations;
   readonly workers?: CommandWorkers;
   readonly snapshots: Snapshots;
   private lock: string;
@@ -93,7 +95,8 @@ export class Engine {
     writeFileSync(this.lockHandle, String(process.pid));
     let openedStore: Store | undefined,
       initializedContainment: Containment | undefined,
-      initializedRuntimes: Runtimes | undefined;
+      initializedRuntimes: Runtimes | undefined,
+      initializedEvaluations: Evaluations | undefined;
     try {
       this.store = openedStore = new Store(
         join(state, "engine.sqlite"),
@@ -161,6 +164,12 @@ export class Engine {
         this.specialists.context(scope),
       );
       this.learning = new Learning(this.store, this.artifacts, this.operations);
+      this.evaluations = initializedEvaluations = new Evaluations(
+        this.store,
+        this.learning,
+        () => this.models,
+        options.sourceHash,
+      );
       this.runtimes = initializedRuntimes = new Runtimes(
         this.store,
         this.identity,
@@ -193,6 +202,7 @@ export class Engine {
       this.sweep = setInterval(() => {
         try {
           this.operations.sweep();
+          this.evaluations.sweep();
           void this.runtimes
             .sweep()
             .catch((error) =>
@@ -216,6 +226,7 @@ export class Engine {
       }, 250);
       this.healthCheck.unref();
     } catch (error) {
+      initializedEvaluations?.close();
       initializedRuntimes?.close();
       initializedContainment?.close();
       openedStore?.close();
@@ -437,6 +448,9 @@ export class Engine {
       stages: this.store.list("stage-attempt"),
       contexts: this.store.list("context"),
       candidates: this.store.list("candidate"),
+      evaluationSuites: this.evaluations.suites(),
+      evaluationJobs: this.store.list("evaluation-job"),
+      evaluations: this.store.list("evaluation"),
       skills: this.store.list("skill"),
       alerts: this.store.list("alert"),
       certificates: this.store.list("runtime-certificate"),
@@ -453,6 +467,7 @@ export class Engine {
     clearInterval(this.healthCheck);
     this.containment.close();
     this.runtimes.close();
+    this.evaluations.close();
     this.compaction.close();
     this.store.close();
     closeSync(this.lockHandle);

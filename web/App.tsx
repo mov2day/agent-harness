@@ -2,6 +2,8 @@ import React, { useEffect, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import type { Engine } from "../src/engine.js";
 import type { Policy } from "../src/policy.js";
+import type { Candidate, Evaluation } from "../src/learning.js";
+import type { EvaluationJob, EvaluationRun } from "../src/evaluations.js";
 import "./app.css";
 type State = ReturnType<Engine["state"]>;
 type Page =
@@ -39,6 +41,311 @@ function Empty({
       </span>
       <h3>{title}</h3>
       <p>{children}</p>
+    </div>
+  );
+}
+type OwnerAction = (
+  path: string,
+  data: unknown,
+  message: string,
+) => Promise<void>;
+function EvaluationSuiteImport({
+  state,
+  busy,
+  action,
+}: {
+  state: State;
+  busy: boolean;
+  action: OwnerAction;
+}) {
+  const [repository, setRepository] = useState(""),
+    [file, setFile] = useState<File>(),
+    [error, setError] = useState("");
+  const target = repository || state.repositories[0]?.id || "";
+  return (
+    <details className="evaluation-import">
+      <summary>
+        Evaluation suites · {state.evaluationSuites.length} installed
+      </summary>
+      <p className="quiet">
+        Import fixed control and quality cases for a repository. Expected
+        answers stay in the engine and are excluded from model requests.
+      </p>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          setError("");
+          void (async () => {
+            try {
+              if (!file || file.size > 2_000_000)
+                throw new Error(
+                  "Choose an evaluation suite file smaller than 2 MB.",
+                );
+              const parsed = JSON.parse(await file.text());
+              if (
+                !parsed ||
+                typeof parsed !== "object" ||
+                Array.isArray(parsed)
+              )
+                throw new Error("The suite file must contain an object.");
+              const { id: _id, scope: _scope, ...definition } = parsed;
+              await action(
+                "learning/suites",
+                { ...definition, scope: target },
+                "Evaluation suite installed.",
+              );
+            } catch (error) {
+              setError((error as Error).message);
+            }
+          })();
+        }}
+      >
+        <div className="form-grid">
+          <label htmlFor="evaluation-repository">
+            Repository
+            <select
+              id="evaluation-repository"
+              value={target}
+              onChange={(event) => setRepository(event.target.value)}
+              required
+            >
+              {!state.repositories.length && (
+                <option value="">Enroll a repository first</option>
+              )}
+              {state.repositories.map((repository) => (
+                <option key={repository.id} value={repository.id}>
+                  {repository.path}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label htmlFor="evaluation-file">
+            Suite file
+            <input
+              id="evaluation-file"
+              type="file"
+              accept="application/json,.json"
+              onChange={(event) => setFile(event.target.files?.[0])}
+              required
+            />
+          </label>
+        </div>
+        {error && <p role="alert">{error}</p>}
+        <button className="secondary" disabled={busy || !file || !target}>
+          Import suite
+        </button>
+      </form>
+    </details>
+  );
+}
+function EvaluationControls({
+  state,
+  candidate,
+  busy,
+  action,
+  request,
+}: {
+  state: State;
+  candidate: Candidate;
+  busy: boolean;
+  action: OwnerAction;
+  request: (path: string, data?: unknown) => Promise<any>;
+}) {
+  const [selected, setSelected] = useState(""),
+    [evidence, setEvidence] = useState<{
+      job: EvaluationJob;
+      runs: EvaluationRun[];
+    }>(),
+    [error, setError] = useState(""),
+    [loading, setLoading] = useState(false);
+  const suites = state.evaluationSuites.filter(
+    (suite) => suite.scope === candidate.repository,
+  );
+  const suite = suites.some((suite) => suite.id === selected)
+    ? selected
+    : suites[0]?.id || "";
+  const jobs = (state.evaluationJobs as EvaluationJob[])
+    .filter((job) => job.candidate === candidate.id)
+    .sort((a, b) => b.created - a.created);
+  const latest = jobs[0],
+    running = jobs.find(
+      (job) => job.status === "queued" || job.status === "running",
+    );
+  const result = (state.evaluations as Evaluation[]).find(
+    (evaluation) => evaluation.id === latest?.evaluation,
+  );
+  const stats = (scores: { score: number }[]) => {
+    const values = scores.map((score) => score.score).sort((a, b) => a - b);
+    return `${Math.round(values[Math.floor(values.length / 2)]! * 100)}% / ${Math.round(values[0]! * 100)}%`;
+  };
+  return (
+    <div className="evaluation-block">
+      {latest && (
+        <>
+          <div className="list-row">
+            <strong>Evaluation</strong>
+            <Badge value={latest.status} />
+          </div>
+          <p className="fine">
+            {latest.finished} of {latest.total} runs recorded ·{" "}
+            {latest.model.model}
+          </p>
+          <progress
+            className="evaluation-progress"
+            value={latest.finished}
+            max={latest.total}
+            aria-label={`Evaluation progress for ${candidate.target}`}
+          />
+          {latest.error && <p role="status">{pretty(latest.error)}</p>}
+          {result && (
+            <>
+              <p>
+                {result.eligible
+                  ? "All controls passed and quality improved without regression."
+                  : "This evaluation does not qualify for promotion."}
+              </p>
+              {!!result.reasons.length && (
+                <ul>
+                  {result.reasons.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              )}
+              <details>
+                <summary>Compare scores</summary>
+                <div className="table-wrap">
+                  <table>
+                    <caption>Median / lowest score across three runs</caption>
+                    <thead>
+                      <tr>
+                        <th>Case</th>
+                        <th>Baseline</th>
+                        <th>Proposed</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.keys(result.baseline).map((key) => (
+                        <tr key={key}>
+                          <td>{pretty(key)}</td>
+                          <td>{stats(result.baseline[key]!)}</td>
+                          <td>{stats(result.proposed[key]!)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            </>
+          )}
+          <div className="actions">
+            {running && (
+              <button
+                className="secondary danger"
+                disabled={busy}
+                onClick={() =>
+                  void action(
+                    "learning/cancel",
+                    { job: running.id },
+                    "Evaluation cancelled. Completed evidence has been retained.",
+                  )
+                }
+              >
+                Cancel evaluation
+              </button>
+            )}
+            <button
+              className="secondary"
+              disabled={loading}
+              onClick={() => {
+                setLoading(true);
+                setError("");
+                void request("learning/evidence", { job: latest.id })
+                  .then(setEvidence)
+                  .catch((error) => setError(error.message))
+                  .finally(() => setLoading(false));
+              }}
+            >
+              {loading ? "Loading evidence…" : "Inspect run evidence"}
+            </button>
+          </div>
+        </>
+      )}
+      {evidence?.job.id === latest?.id && evidence && (
+        <details open className="evaluation-evidence">
+          <summary>Recorded replies · {evidence.runs.length} runs</summary>
+          {evidence.runs.map((run) => (
+            <details key={run.id}>
+              <summary>
+                {pretty(run.case)} · {run.side} · run {run.run + 1} ·{" "}
+                {pretty(run.status)}
+              </summary>
+              <p className="fine">
+                {run.result
+                  ? `${run.result.checks.filter(Boolean).length} of ${run.result.checks.length} fixed checks passed`
+                  : "No score recorded"}
+              </p>
+              <pre>
+                {run.response?.choices[0]?.message.content ??
+                  "No completed reply"}
+              </pre>
+            </details>
+          ))}
+        </details>
+      )}
+      {error && <p role="alert">{error}</p>}
+      {["candidate", "rejected", "eligible"].includes(candidate.status) &&
+        !running && (
+          <>
+            {suites.length ? (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void action(
+                    "learning/evaluate",
+                    {
+                      session: candidate.session,
+                      candidate: candidate.id,
+                      suite,
+                      idempotencyKey: crypto.randomUUID(),
+                    },
+                    "Evaluation started. Progress and results appear here.",
+                  );
+                }}
+              >
+                <label htmlFor={`suite-${candidate.id}`}>
+                  Evaluation suite
+                </label>
+                <div className="actions">
+                  <select
+                    id={`suite-${candidate.id}`}
+                    value={suite}
+                    onChange={(event) => setSelected(event.target.value)}
+                  >
+                    {suites.map((suite) => (
+                      <option value={suite.id} key={suite.id}>
+                        {suite.version} · {suite.cases} cases ·{" "}
+                        {short(suite.id)}
+                      </option>
+                    ))}
+                  </select>
+                  <button className="secondary" disabled={busy || !suite}>
+                    {latest ? "Run a new evaluation" : "Evaluate candidate"}
+                  </button>
+                </div>
+                <p className="fine">
+                  Each case runs three times for the baseline and proposal using
+                  the configured model. A new evaluation replaces prior
+                  eligibility until it finishes.
+                </p>
+              </form>
+            ) : (
+              <p className="quiet">
+                Import an evaluation suite for this repository to compare the
+                proposal.
+              </p>
+            )}
+          </>
+        )}
     </div>
   );
 }
@@ -632,6 +939,11 @@ function App() {
                 mandatory control must pass and quality must improve without
                 regression.
               </p>
+              <EvaluationSuiteImport
+                state={state}
+                busy={busy}
+                action={action}
+              />
               {!(state.candidates as any[]).length ? (
                 <Empty title="Learning starts with evidence">
                   Repository-scoped candidates, evaluation results, and approved
@@ -660,6 +972,13 @@ function App() {
                           {c.after}
                         </pre>
                       </div>
+                      <EvaluationControls
+                        state={state}
+                        candidate={c}
+                        busy={busy}
+                        action={action}
+                        request={request}
+                      />
                       <div className="actions">
                         {c.status === "eligible" && (
                           <button

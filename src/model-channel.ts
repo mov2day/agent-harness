@@ -10,7 +10,7 @@ import {
   fstatSync,
   constants,
 } from "node:fs";
-import { check, hash, type Session } from "./core.js";
+import { check, digest, hash, type Session } from "./core.js";
 import {
   pinnedLookup,
   publicAddress,
@@ -168,6 +168,10 @@ const profileSchema = z
   .strict();
 export type ModelProfile = z.infer<typeof profileSchema>;
 export class ModelChannel {
+  private changeListeners = new Set<() => void>();
+  onChange(listener: () => void) {
+    this.changeListeners.add(listener);
+  }
   constructor(
     readonly store: Store,
     readonly operations: Operations,
@@ -268,7 +272,29 @@ export class ModelChannel {
         models: profile.models.map((m) => m.id),
       });
     });
+    for (const listener of this.changeListeners) listener();
     return { id: profile.id, models: profile.models.map((m) => m.id) };
+  }
+  private selected(setting: NonNullable<Session["model"]>) {
+    const profiles = this.store
+      .list<ModelProfile>("model-profile")
+      .filter((profile) =>
+        profile.models.some((model) => model.id === setting.model),
+      );
+    check(profiles.length === 1, "model_provider_not_configured");
+    const profile = profileSchema.parse(profiles[0]);
+    const model = profile.models.find((model) => model.id === setting.model)!;
+    check(model.reasoning.includes(setting.reasoning), "unsupported_model");
+    return { profile, model };
+  }
+  evaluationBinding(setting: NonNullable<Session["model"]>) {
+    const { profile, model } = this.selected(setting);
+    return {
+      hash: digest({ profile, setting }),
+      tokenizer: model.tokenizer,
+      contextWindow: model.contextWindow,
+      maxOutputTokens: model.maxOutputTokens,
+    };
   }
   configuration(scope: Session) {
     const matches = this.store
@@ -296,22 +322,78 @@ export class ModelChannel {
       scope = this.operations.identity.session(current.session),
       setting = scope.model;
     check(setting, "model_not_assigned");
-    const input = modelRequestSchema.parse(
+    return this.dispatch(
+      scope,
+      setting,
       prepared?.request ?? current.args.request,
+      signal,
+      contextOutputLimit,
+      {
+        validate: () => {
+          this.operations.validate(op);
+        },
+        admit: (effect) => {
+          this.operations.commit(op, effect);
+        },
+        purpose: prepared?.purpose ?? "continuation",
+        operation: op.id,
+      },
     );
+  }
+  /** Host-only inference for an authenticated owner evaluation job. It has no
+   * tool dispatcher and never opens the originating runtime's conversation. */
+  evaluate(
+    scope: Pick<Session, "repository" | "session">,
+    setting: NonNullable<Session["model"]>,
+    request: ModelRequest,
+    signal: AbortSignal,
+    run: string,
+    validate: () => void,
+  ) {
+    check(
+      !request.tools && request.tool_choice === "none",
+      "evaluation_tools_forbidden",
+    );
+    return this.dispatch(scope, setting, request, signal, undefined, {
+      validate,
+      admit: (effect) => {
+        this.store.transaction(() => {
+          validate();
+          this.store.audit(
+            "model.evaluation_admitted",
+            { run, requestHash: digest(request) },
+            scope.repository,
+            scope.session,
+          );
+        });
+        effect();
+      },
+      purpose: "evaluation",
+      operation: run,
+    });
+  }
+  private async dispatch(
+    scope: Pick<Session, "repository" | "session">,
+    setting: NonNullable<Session["model"]>,
+    request: unknown,
+    signal: AbortSignal,
+    contextOutputLimit: number | undefined,
+    authority: {
+      validate(): void;
+      admit(effect: () => void): void;
+      purpose: string;
+      operation: string;
+    },
+  ) {
+    authority.validate();
+    const input = modelRequestSchema.parse(request);
     check(
       input.model === setting.model &&
         (!input.reasoning_effort ||
           input.reasoning_effort === setting.reasoning),
       "model_override_denied",
     );
-    const profiles = this.store
-      .list<ModelProfile>("model-profile")
-      .filter((p) => p.models.some((m) => m.id === setting.model));
-    check(profiles.length === 1, "model_provider_not_configured");
-    const profile = profileSchema.parse(profiles[0]),
-      model = profile.models.find((m) => m.id === setting.model)!;
-    check(model.reasoning.includes(setting.reasoning), "unsupported_model");
+    const { profile, model } = this.selected(setting);
     const requestedLimit =
       input.max_completion_tokens ?? input.max_tokens ?? model.maxOutputTokens;
     check(requestedLimit <= model.maxOutputTokens, "model_output_limit");
@@ -333,7 +415,7 @@ export class ModelChannel {
       addresses.length && addresses.every((a) => publicAddress(a.address)),
       "prohibited_address",
     );
-    this.operations.validate(op);
+    authority.validate();
     signal.throwIfAborted();
     const credential = this.credential(profile),
       target = addresses[0]!;
@@ -349,7 +431,7 @@ export class ModelChannel {
     });
     const body = await new Promise<Buffer>((resolve, reject) => {
       let req: ReturnType<HttpsRequestFactory>;
-      this.operations.commit(op, () => {
+      authority.admit(() => {
         req = this.request(
           endpoint,
           {
@@ -391,7 +473,8 @@ export class ModelChannel {
         req!.end(payload);
       });
     });
-    this.operations.validate(op);
+    authority.validate();
+    signal.throwIfAborted();
     check(
       !body.includes(Buffer.from(credential)),
       "provider_credential_in_response",
@@ -403,17 +486,17 @@ export class ModelChannel {
       this.store.audit(
         "model.response",
         {
-          operation: op.id,
+          operation: authority.operation,
           profile: profile.id,
           model: setting.model,
           address: target.address,
           hash: hash(body),
           maxOutputTokens: outputLimit,
-          purpose: prepared?.purpose ?? "continuation",
+          purpose: authority.purpose,
           requestHash: hash(payload),
         },
-        op.repository,
-        op.session,
+        scope.repository,
+        scope.session,
       ),
     );
     return {

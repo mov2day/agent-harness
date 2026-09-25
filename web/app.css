@@ -638,6 +638,50 @@ td small {
 .learning-entry {
   border-bottom: 1px solid var(--line);
 }
+.evaluation-import {
+  margin-bottom: 24px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 18px 0;
+}
+.evaluation-import > form > button {
+  margin-left: 24px;
+}
+.evaluation-block {
+  padding: 8px 24px 20px;
+  font-size: 13px;
+}
+.evaluation-block .list-row,
+.evaluation-block .quiet {
+  padding: 12px 0;
+}
+.evaluation-block .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 0;
+}
+.evaluation-block select {
+  flex: 1 1 240px;
+}
+.evaluation-progress {
+  width: 100%;
+  height: 7px;
+  accent-color: #719440;
+}
+.evaluation-evidence {
+  margin-bottom: 20px;
+}
+.evaluation-evidence > details {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.evaluation-evidence pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 280px;
+  overflow: auto;
+}
 .quiet {
   padding: 25px;
   color: var(--muted);

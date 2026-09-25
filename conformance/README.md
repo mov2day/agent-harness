@@ -90,6 +90,12 @@ Unit tests also verify fresh specialist checkpoints, exact explicit evidence lin
 
 The complete live specialist workflow also passed again with image `0fbecf12d742`: 52 model requests including five checkpoints in the retained Reviewer, ten completed assignments, five reviewed stages and actual removal of all seven containers. Its fixture-policy and scripted-provider limitations remain unchanged.
 
+### Production learning evaluator
+
+On 2026-09-25 macOS and Linux arm64 image `060770920dec` passed **124/124** tests, type checking and production build. The added coverage exercises independent model requests, three runs per side/case, fixed assertions, control failures, held-out regression, ties, malformed replies, attempted tool calls, idempotency, corrupted/missing evidence, engine/profile changes, cancellation, restart recovery, strict owner routes and credential filtering.
+
+The engine-backed OpenCode test passed again using runtime image `0fbecf12d742`. Promotion now uses the production evaluator rather than injected score callbacks. It made 24 evaluation requests in addition to nine runtime continuations and three summaries, then verified fresh approved content, rollback and cleanup of all three containers. Provider replies remain scripted and certificates are disposable; no paid-provider/model-quality or independent release certification is claimed. The [evaluation guide](../docs/EVALUATIONS.md) describes the supported response-scoring scope.
+
 ## Authorization mechanism benchmark
 
 ```sh

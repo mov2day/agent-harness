@@ -21,12 +21,20 @@ const candidateInput = z
 export interface Suite {
   id: string;
   version: string;
+  scope?: string;
   cases: Array<{
     id: string;
     kind: "control" | "quality";
     split: "fixture" | "heldout";
     modelDependent: boolean;
   }>;
+}
+export function suiteHash(suite: Omit<Suite, "id">) {
+  return digest({
+    version: suite.version,
+    cases: suite.cases,
+    scope: suite.scope,
+  });
 }
 export interface Score {
   passed: boolean;
@@ -42,6 +50,7 @@ export interface Evaluation {
   proposed: Record<string, Score[]>;
   eligible: boolean;
   reasons: string[];
+  run?: string;
 }
 export interface Candidate {
   id: string;
@@ -85,6 +94,10 @@ function candidateVersion(
 }
 export type Skill = ApprovedMaterial;
 export class Learning {
+  private evaluationVerifier?: (evaluation: Evaluation) => void;
+  setEvaluationVerifier(verify: (evaluation: Evaluation) => void) {
+    this.evaluationVerifier = verify;
+  }
   constructor(
     readonly store: Store,
     readonly artifacts: Artifacts,
@@ -165,10 +178,7 @@ export class Learning {
     return candidate;
   }
   installSuite(suite: Suite) {
-    check(
-      suite.id === digest({ version: suite.version, cases: suite.cases }),
-      "suite_hash",
-    );
+    check(suite.id === suiteHash(suite), "suite_hash");
     check(
       suite.cases.some((c) => c.split === "fixture") &&
         suite.cases.some((c) => c.split === "heldout") &&
@@ -180,7 +190,7 @@ export class Learning {
       new Set(suite.cases.map((c) => c.id)).size === suite.cases.length,
       "suite_duplicate_case",
     );
-    this.store.put("suite", suite.id, suite);
+    this.store.put("suite", suite.id, suite, suite.scope);
   }
   async evaluate(
     scope: Session,
@@ -191,14 +201,13 @@ export class Learning {
       test: Suite["cases"][number],
       run: number,
     ) => Promise<Score>,
+    commit?: (evaluation: Evaluation) => void,
   ) {
     const candidate = this.get(scope, key),
       suite = this.store.get<Suite>("suite", suiteId);
     check(suite, "suite_missing");
-    check(
-      suite.id === digest({ version: suite.version, cases: suite.cases }),
-      "suite_hash",
-    );
+    check(suite.id === suiteHash(suite), "suite_hash");
+    check(!suite.scope || suite.scope === scope.repository, "suite_scope");
     check(
       candidate.status === "candidate" || candidate.status === "rejected",
       "candidate_state",
@@ -246,6 +255,7 @@ export class Learning {
       );
       candidate.evaluation = evaluation.id;
       candidate.status = evaluation.eligible ? "eligible" : "rejected";
+      commit?.(evaluation);
       this.store.put(
         "evaluation",
         evaluation.id,
@@ -412,12 +422,11 @@ export class Learning {
           e.baselineVersion === c.baseVersion,
         "learning_ineligible",
       );
+      this.evaluationVerifier?.(e);
       const suite = this.store.get<Suite>("suite", e.suite);
       check(suite, "suite_missing");
-      check(
-        suite.id === digest({ version: suite.version, cases: suite.cases }),
-        "suite_hash",
-      );
+      check(suite.id === suiteHash(suite), "suite_hash");
+      check(!suite.scope || suite.scope === scope.repository, "suite_scope");
       check(
         this.assess(suite, e.baseline, e.proposed).eligible,
         "learning_ineligible",

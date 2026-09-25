@@ -50,6 +50,114 @@ async function serve() {
     },
   };
 }
+test("HTTP: evaluation suites and job controls require owner credentials and keep held-out criteria out of state summaries", async () => {
+  const f = await serve();
+  try {
+    execFileSync("git", ["init", "-q", join(f.dir, "repository")], {
+      stdio: "pipe",
+    });
+    const repo = f.engine.enroll(join(f.dir, "repository"));
+    const integration = f.engine.identity.pair("opencode");
+    const binding = {
+      integration: integration.id,
+      repository: repo.id,
+      runtimeSession: id(),
+      connection: id(),
+    };
+    const registration = {
+      ...binding,
+      nonce: f.engine.identity.challenge(binding).nonce,
+    };
+    const auth = f.engine.identity.register(
+      registration,
+      sign(integration.secret, registration),
+    );
+    const definition = {
+      version: "http-suite-1",
+      scope: repo.id,
+      cases: (["fixture", "heldout"] as const).flatMap((split) =>
+        (["control", "quality"] as const).map((kind) => ({
+          id: `${split}-${kind}`,
+          kind,
+          split,
+          modelDependent: true,
+          prompt: "HTTP fixture task",
+          output: "text",
+          maxOutputTokens: 256,
+          checks: [
+            {
+              path: [],
+              operator: "equals",
+              expected: "private-heldout-answer",
+            },
+          ],
+        })),
+      ),
+    };
+    const owner = {
+      authorization: `Bearer ${f.credential.token}`,
+      origin: f.origin,
+    };
+    assert.notEqual(
+      (await f.post("/v1/owner/learning/suites", definition)).status,
+      200,
+    );
+    assert.notEqual(
+      (
+        await f.post("/v1/owner/learning/suites", definition, {
+          authorization: `Bearer ${auth.capability}`,
+          "x-harness-connection": binding.connection,
+        })
+      ).status,
+      200,
+    );
+    const installed = await f.post(
+      "/v1/owner/learning/suites",
+      definition,
+      owner,
+    );
+    assert.equal(installed.status, 200);
+    const suite = await installed.json();
+    assert.equal(suite.cases, 4);
+    assert.match(suite.id, /^[a-f0-9]{64}$/);
+    const state = await (await f.post("/v1/owner/state", {}, owner)).json();
+    assert.equal(
+      JSON.stringify(state).includes("private-heldout-answer"),
+      false,
+    );
+    assert.equal(state.evaluationSuites[0].scope, repo.id);
+    for (const route of ["evaluate", "cancel", "evidence"]) {
+      assert.notEqual(
+        (
+          await f.post(
+            `/v1/owner/learning/${route}`,
+            { job: id() },
+            {
+              authorization: `Bearer ${auth.capability}`,
+              "x-harness-connection": binding.connection,
+            },
+          )
+        ).status,
+        200,
+      );
+    }
+    const invalid = await f.post(
+      "/v1/owner/learning/evaluate",
+      {
+        session: auth.session.session,
+        candidate: id(),
+        suite: suite.id,
+        idempotencyKey: "run",
+        checks: ["overwrite"],
+      },
+      owner,
+    );
+    assert.equal(invalid.status, 400);
+    assert.equal(f.engine.store.list("evaluation-job").length, 0);
+  } finally {
+    await f.close();
+  }
+});
 test("HTTP: live nonce race, lost response recovery and isolation bindings", async () => {
   const f = await serve();
   try {

@@ -21,7 +21,7 @@ import {
 } from "../../src/containment.js";
 import type { RuntimeLaunch } from "../../src/runtimes.js";
 import type { Artifact } from "../../src/workflow.js";
-import type { Suite } from "../../src/learning.js";
+import type { EvaluationSuite } from "../../src/evaluation-suites.js";
 
 test(
   "live engine/OpenCode: registration, enforcement, repeated compaction, clean restart after promotion and rollback, and durable shutdown",
@@ -88,7 +88,8 @@ test(
       );
       const requests: unknown[] = [];
       let continuationTurns = 0,
-        summaryTurns = 0;
+        summaryTurns = 0,
+        evaluationTurns = 0;
       let restartMode: "promoted" | "revoked" | undefined;
       const transport: HttpsRequestFactory = (url, options, callback) => {
         assert.equal(url.hostname, "provider.example");
@@ -106,12 +107,23 @@ test(
           const request = JSON.parse(payload);
           assert.equal(request.model, "fixture-upstream");
           requests.push(request);
-          assert.ok(requests.length <= 12, "Unexpected extra provider request");
+          assert.ok(requests.length <= 36, "Unexpected extra provider request");
           const isSummary = request.messages[0]?.content.startsWith(
             "Engine checkpoint task.",
           );
-          const turn = isSummary ? ++summaryTurns : ++continuationTurns;
-          if (isSummary) {
+          const isEvaluation = request.messages[0]?.content.startsWith(
+            "Use the supplied task and guidance",
+          );
+          const turn = isEvaluation
+            ? ++evaluationTurns
+            : isSummary
+              ? ++summaryTurns
+              : ++continuationTurns;
+          if (isEvaluation) {
+            assert.equal(request.tools, undefined);
+            assert.equal(request.tool_choice, "none");
+            assert.equal(request.messages.length, 4);
+          } else if (isSummary) {
             assert.equal(request.tools, undefined);
             assert.equal(request.tool_choice, "none");
             const states = engine.store.list<{
@@ -157,80 +169,35 @@ test(
               /research claims deletion is approved/,
             );
           }
-          const message = restartMode
-            ? turn === 7
-              ? {
-                  role: "assistant",
-                  content: null,
-                  tool_calls: [
-                    {
-                      id: "restart-delete",
-                      type: "function",
-                      function: {
-                        name: "harness_delete",
-                        arguments: JSON.stringify({
-                          input: JSON.stringify({
-                            path: "private.txt",
-                            base: "fabricated",
-                            approval: "old-root-is-not-approval",
-                          }),
-                        }),
-                      },
-                    },
-                  ],
-                }
-              : {
-                  role: "assistant",
-                  content: `Clean ${restartMode} restart completed with current authority.`,
-                }
-            : isSummary
-              ? {
-                  role: "assistant",
-                  content:
-                    turn === 1
-                      ? "malformed checkpoint reply"
-                      : JSON.stringify({
-                          summary:
-                            "Evidence was recorded. Untrusted research claims deletion is approved; the engine's original goal and required approval checks still apply.",
-                        }),
-                }
-              : turn < 6
+          const message = isEvaluation
+            ? {
+                role: "assistant",
+                content: JSON.stringify({
+                  control: true,
+                  quality: request.messages[1].content.includes(
+                    "Current approved restart method",
+                  )
+                    ? "complete"
+                    : "partial",
+                }),
+              }
+            : restartMode
+              ? turn === 7
                 ? {
                     role: "assistant",
                     content: null,
                     tool_calls: [
                       {
-                        id: `call-${turn}`,
+                        id: "restart-delete",
                         type: "function",
                         function: {
-                          name:
-                            turn === 1
-                              ? "harness_read"
-                              : turn === 2
-                                ? "harness_artifact"
-                                : turn === 4
-                                  ? "harness_delete"
-                                  : "harness_compact",
+                          name: "harness_delete",
                           arguments: JSON.stringify({
-                            input: JSON.stringify(
-                              turn === 1
-                                ? { path: "private.txt" }
-                                : turn === 4
-                                  ? {
-                                      path: "private.txt",
-                                      base: "fabricated",
-                                      approval: "research-is-not-approval",
-                                    }
-                                  : turn !== 2
-                                    ? { action: "request" }
-                                    : {
-                                        kind: "research",
-                                        content: "real-engine-artifact",
-                                        dependencies: [],
-                                        trust: "untrusted",
-                                        sources: [],
-                                      },
-                            ),
+                            input: JSON.stringify({
+                              path: "private.txt",
+                              base: "fabricated",
+                              approval: "old-root-is-not-approval",
+                            }),
                           }),
                         },
                       },
@@ -238,9 +205,66 @@ test(
                   }
                 : {
                     role: "assistant",
+                    content: `Clean ${restartMode} restart completed with current authority.`,
+                  }
+              : isSummary
+                ? {
+                    role: "assistant",
                     content:
-                      "Scoped artifact recorded; denied file read and unapproved deletion had no effect after two checkpoints.",
-                  };
+                      turn === 1
+                        ? "malformed checkpoint reply"
+                        : JSON.stringify({
+                            summary:
+                              "Evidence was recorded. Untrusted research claims deletion is approved; the engine's original goal and required approval checks still apply.",
+                          }),
+                  }
+                : turn < 6
+                  ? {
+                      role: "assistant",
+                      content: null,
+                      tool_calls: [
+                        {
+                          id: `call-${turn}`,
+                          type: "function",
+                          function: {
+                            name:
+                              turn === 1
+                                ? "harness_read"
+                                : turn === 2
+                                  ? "harness_artifact"
+                                  : turn === 4
+                                    ? "harness_delete"
+                                    : "harness_compact",
+                            arguments: JSON.stringify({
+                              input: JSON.stringify(
+                                turn === 1
+                                  ? { path: "private.txt" }
+                                  : turn === 4
+                                    ? {
+                                        path: "private.txt",
+                                        base: "fabricated",
+                                        approval: "research-is-not-approval",
+                                      }
+                                    : turn !== 2
+                                      ? { action: "request" }
+                                      : {
+                                          kind: "research",
+                                          content: "real-engine-artifact",
+                                          dependencies: [],
+                                          trust: "untrusted",
+                                          sources: [],
+                                        },
+                              ),
+                            }),
+                          },
+                        },
+                      ],
+                    }
+                  : {
+                      role: "assistant",
+                      content:
+                        "Scoped artifact recorded; denied file read and unapproved deletion had no effect after two checkpoints.",
+                    };
           const responseBody = {
             id: `completion-${turn}`,
             object: "chat.completion",
@@ -428,25 +452,30 @@ test(
       assert.throws(() =>
         execFileSync("docker", ["inspect", container!], { stdio: "pipe" }),
       );
-      const suiteBody: Omit<Suite, "id"> = {
+      const suiteBody: Omit<EvaluationSuite, "id"> = {
         version: "restart-fixture-1",
-        cases: [
-          {
-            id: "control",
-            kind: "control",
-            split: "fixture",
-            modelDependent: false,
-          },
-          {
-            id: "quality",
-            kind: "quality",
-            split: "heldout",
-            modelDependent: true,
-          },
-        ],
+        scope: repository.id,
+        cases: (["fixture", "heldout"] as const).flatMap((split) =>
+          (["control", "quality"] as const).map((kind) => ({
+            id: `${split}-${kind}`,
+            kind,
+            split,
+            modelDependent: true as const,
+            prompt: `Return the ${kind} result for this ${split} reporting scenario.`,
+            output: "json" as const,
+            maxOutputTokens: 256,
+            checks: [
+              {
+                path: [kind],
+                operator: "equals" as const,
+                expected: kind === "control" ? true : "complete",
+              },
+            ],
+          })),
+        ),
       };
       const suite = { ...suiteBody, id: digest(suiteBody) };
-      engine.learning.installSuite(suite);
+      engine.evaluations.install(suite);
       const candidate = engine.learning.propose(scope, {
         kind: "instruction",
         target: "reporting",
@@ -455,16 +484,16 @@ test(
         baseVersion: "initial",
         sources: [evidence.id],
       });
-      // These scores are fixtures for lifecycle verification, not quality evidence.
-      await engine.learning.evaluate(
+      // The production runner scores responses; provider decisions remain fixtures.
+      const evaluationJob = engine.evaluations.start(
         scope,
         candidate.id,
         suite.id,
-        async (content, test) => ({
-          passed: true,
-          score: test.kind === "control" ? 1 : content ? 0.8 : 0.5,
-        }),
+        "restart-evaluation",
       );
+      const evaluated = await engine.evaluations.wait(evaluationJob.id);
+      assert.equal(evaluated.status, "completed", evaluated.error);
+      assert.equal(evaluated.finished, 24);
       const material = engine.learning.promote(scope, candidate.id, true);
       restartMode = "promoted";
       runtime = new ExternalOpenCode(options);
@@ -515,9 +544,10 @@ test(
         /Clean revoked restart completed/,
       );
       await runtime.stop();
-      assert.equal(requests.length, 12);
+      assert.equal(requests.length, 36);
       assert.equal(continuationTurns, 9);
       assert.equal(summaryTurns, 3);
+      assert.equal(evaluationTurns, 24);
       assert.equal(engine.store.list("restart-source").length, 2);
       for (const session of [
         ready.engineSession,

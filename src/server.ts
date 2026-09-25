@@ -246,14 +246,64 @@ export function createEngineServer(
               data.reserved,
             );
             break;
-          case "/v1/owner/learning/promote":
-            result = engine.learning.promote(
-              engine.identity.session(data.session),
-              data.candidate,
-              true,
-              !!data.global,
+          case "/v1/owner/learning/suites":
+            result = engine.evaluations.install(data);
+            break;
+          case "/v1/owner/learning/evaluate": {
+            const d = z
+              .object({
+                session: z.string().uuid(),
+                candidate: z.string().uuid(),
+                suite: z.string().regex(/^[a-f0-9]{64}$/),
+                idempotencyKey: z.string().min(1).max(128),
+              })
+              .strict()
+              .parse(data);
+            result = engine.evaluations.start(
+              engine.identity.session(d.session),
+              d.candidate,
+              d.suite,
+              d.idempotencyKey,
             );
             break;
+          }
+          case "/v1/owner/learning/cancel": {
+            const d = z.object({ job: z.string().uuid() }).strict().parse(data);
+            result = engine.evaluations.cancel(d.job);
+            break;
+          }
+          case "/v1/owner/learning/evidence": {
+            const d = z.object({ job: z.string().uuid() }).strict().parse(data);
+            const job = engine.evaluations.get(d.job);
+            result = {
+              job,
+              runs: engine.store
+                .list<{ job: string }>(
+                  "evaluation-run",
+                  job.repository,
+                  job.session,
+                )
+                .filter((run) => run.job === job.id),
+            };
+            break;
+          }
+          case "/v1/owner/learning/promote": {
+            const d = z
+              .object({
+                session: z.string().uuid(),
+                candidate: z.string().uuid(),
+                global: z.boolean().default(false),
+              })
+              .strict()
+              .parse(data);
+            result = engine.learning.promote(
+              engine.identity.session(d.session),
+              d.candidate,
+              true,
+              d.global,
+            );
+            break;
+          }
           case "/v1/owner/learning/privacy":
             engine.learning.privacyReview(
               engine.identity.session(data.session),
