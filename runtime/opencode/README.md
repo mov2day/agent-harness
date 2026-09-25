@@ -67,6 +67,12 @@ A failed compaction retains the previous checkpoint and gets one retry before th
 
 Clean checkpoint restart/reload remains unfinished. The runtime retains its own local transcript under the transport size limit. Full authoritative state and source references are preserved; an oversized checkpoint pauses safely.
 
+## Approved instructions and rollback
+
+New registrations capture exact approved publication versions. Before each provider request the host validates their content and scope, loads skills/instructions as guidance, and presents repository knowledge as untrusted reference context. Neither can change policy, evaluation criteria or approvals. Global publications contain only reviewed public material; private proposal evidence remains in its originating repository.
+
+Promotion and rollback invalidate affected sessions. Rollback restores the previous verified local version where available, otherwise disables the revoked publication. Historical revoked text remains available for audit and is excluded from fresh prompts. Existing experimental publications without the versioned integrity format require a new evaluated proposal and approval; they are never silently reapproved.
+
 ## Reading saved output
 
 Use `harness_artifact` with `{"action":"page","id":"ARTIFACT_ID","hash":"EXACT_CONTENT_HASH","offset":0,"bytes":512}`. For a bounded tool result, use its `outputArtifact` and `outputHash` fields as the page ID and hash. Existing artifact echoes also preserve the original `id` and `hash` when that is the content you need.

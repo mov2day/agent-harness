@@ -24,6 +24,7 @@ import {
 } from "./core.js";
 import type { Store } from "./store.js";
 import type { Policies } from "./policy.js";
+import { approvedVersions, loadedMaterials } from "./materials.js";
 export interface Repository {
   id: string;
   path: string;
@@ -304,21 +305,17 @@ export class Identity {
     });
   }
   approvedSkills(repository: string): Record<string, string> {
-    const loaded: Record<string, string> = {};
-    for (const skill of this.store.list<{
-      id: string;
-      version: string;
-      revoked: boolean;
-      scope: string;
-    }>("skill")) {
-      if (
-        !skill.revoked &&
-        (skill.scope === repository || skill.scope === "global")
-      )
-        loaded[skill.scope === "global" ? `global/${skill.id}` : skill.id] =
-          skill.version;
-    }
-    return loaded;
+    return approvedVersions(this.store, repository);
+  }
+  materials(scope: Session) {
+    const current = this.session(scope.session);
+    check(
+      current.repository === scope.repository &&
+        current.generation === scope.generation &&
+        digest(current.skills) === digest(scope.skills),
+      "context_authority_changed",
+    );
+    return loadedMaterials(this.store, current);
   }
   specialistChallenge(input: unknown) {
     const request = z
@@ -539,22 +536,7 @@ export class Identity {
           "renewal_too_early",
         );
         this.repositories.verify(s.repository);
-        for (const [skill, version] of Object.entries(s.skills))
-          check(
-            this.store.get<{ version: string; revoked: boolean }>(
-              "skill",
-              skill.startsWith("global/")
-                ? `global:${skill.slice(7)}`
-                : `${s.repository}:${skill}`,
-            )?.version === version &&
-              !this.store.get<{ revoked: boolean }>(
-                "skill",
-                skill.startsWith("global/")
-                  ? `global:${skill.slice(7)}`
-                  : `${s.repository}:${skill}`,
-              )?.revoked,
-            "skill_revoked",
-          );
+        this.materials(s);
         c.revoked = true;
         this.store.put("capability", c.tokenHash, c, s.repository, s.session);
         const next = this.issue(s);

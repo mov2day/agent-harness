@@ -2,6 +2,22 @@ import { check, digest, id, type Session } from "./core.js";
 import type { Store } from "./store.js";
 import type { Artifacts } from "./workflow.js";
 import type { Operations } from "./operations.js";
+import {
+  materialVersion,
+  validateMaterial,
+  type ApprovedMaterial,
+} from "./materials.js";
+import { z } from "zod";
+const candidateInput = z
+  .object({
+    kind: z.enum(["skill", "instruction", "knowledge"]),
+    target: z.string().regex(/^[a-z][a-z0-9_-]{0,79}$/),
+    baseVersion: z.string().min(1).max(128),
+    before: z.string().max(100_000),
+    after: z.string().min(1).max(100_000),
+    sources: z.array(z.string().min(1).max(128)).min(1).max(1024),
+  })
+  .strict();
 export interface Suite {
   id: string;
   version: string;
@@ -21,6 +37,7 @@ export interface Evaluation {
   candidate: string;
   suite: string;
   baselineVersion: string;
+  candidateVersion: string;
   baseline: Record<string, Score[]>;
   proposed: Record<string, Score[]>;
   eligible: boolean;
@@ -37,20 +54,36 @@ export interface Candidate {
   after: string;
   diff: { before: string; after: string };
   sources: string[];
+  lineage: Record<string, { hash: string; trust: string }>;
   trust: "untrusted";
   private: boolean;
   status: "candidate" | "rejected" | "eligible" | "promoted" | "revoked";
   evaluation?: string;
   version: string;
 }
-export interface Skill {
-  id: string;
-  version: string;
-  content: string;
-  revoked: boolean;
-  kind: Candidate["kind"];
-  scope: string;
+function candidateVersion(
+  candidate: Pick<
+    Candidate,
+    | "kind"
+    | "target"
+    | "baseVersion"
+    | "before"
+    | "after"
+    | "sources"
+    | "lineage"
+  >,
+) {
+  return digest([
+    candidate.kind,
+    candidate.target,
+    candidate.baseVersion,
+    candidate.before,
+    candidate.after,
+    candidate.sources,
+    candidate.lineage,
+  ]);
 }
+export type Skill = ApprovedMaterial;
 export class Learning {
   constructor(
     readonly store: Store,
@@ -68,20 +101,28 @@ export class Learning {
       sources: string[];
     },
   ): Candidate {
+    input = candidateInput.parse(input);
     check(
       ["skill", "instruction", "knowledge"].includes(input.kind),
       "learning_target",
     );
     check(/^[a-z][a-z0-9_-]{0,79}$/.test(input.target), "learning_target");
     check(input.sources.length > 0, "learning_provenance");
-    for (const source of input.sources) this.artifacts.source(scope, source);
+    const lineage = Object.fromEntries(
+      input.sources.map((source) => {
+        const evidence = this.artifacts.source(scope, source);
+        return [source, { hash: evidence.hash, trust: evidence.trust }];
+      }),
+    );
     const current = this.store.get<Skill>(
       "skill",
       `${scope.repository}:${input.target}`,
     );
+    if (current) validateMaterial(current);
+    const baseline = current?.revoked ? undefined : current;
     check(
-      (current?.version ?? "initial") === input.baseVersion &&
-        (current?.content ?? "") === input.before,
+      (baseline?.version ?? "initial") === input.baseVersion &&
+        (baseline?.content ?? "") === input.before,
       "learning_baseline",
     );
     check(
@@ -99,7 +140,8 @@ export class Learning {
       trust: "untrusted",
       private: true,
       status: "candidate",
-      version: digest([input.kind, input.target, input.after]),
+      lineage,
+      version: candidateVersion({ ...input, lineage }),
     };
     this.store.transaction(() => {
       this.store.put(
@@ -154,6 +196,10 @@ export class Learning {
       suite = this.store.get<Suite>("suite", suiteId);
     check(suite, "suite_missing");
     check(
+      suite.id === digest({ version: suite.version, cases: suite.cases }),
+      "suite_hash",
+    );
+    check(
       candidate.status === "candidate" || candidate.status === "rejected",
       "candidate_state",
     );
@@ -174,10 +220,30 @@ export class Learning {
       candidate: key,
       suite: suiteId,
       baselineVersion: candidate.baseVersion,
+      candidateVersion: candidate.version,
       baseline,
       proposed,
     };
     this.store.transaction(() => {
+      const latest = this.get(scope, key);
+      check(
+        latest.version === candidate.version &&
+          latest.evaluation === candidate.evaluation &&
+          ["candidate", "rejected"].includes(latest.status),
+        "evaluation_superseded",
+      );
+      const current = this.store.get<Skill>(
+        "skill",
+        `${scope.repository}:${candidate.target}`,
+      );
+      if (current) validateMaterial(current);
+      check(
+        (current && !current.revoked ? current.version : "initial") ===
+          candidate.baseVersion &&
+          (current && !current.revoked ? current.content : "") ===
+            candidate.before,
+        "learning_baseline",
+      );
       candidate.evaluation = evaluation.id;
       candidate.status = evaluation.eligible ? "eligible" : "rejected";
       this.store.put(
@@ -236,7 +302,7 @@ export class Learning {
         continue;
       }
       if (c.kind === "control") {
-        if (p.some((s) => !s.passed))
+        if ([...b, ...p].some((s) => !s.passed))
           reasons.push(`${c.id}: mandatory control failed`);
         continue;
       }
@@ -256,12 +322,43 @@ export class Learning {
     if (!improved) reasons.push("No predefined median quality improvement");
     return { eligible: reasons.length === 0, reasons };
   }
-  get(scope: Session, key: string) {
+  private snapshot(scope: Session, key: string) {
     const c = this.store.get<Candidate>("candidate", key);
     check(
       c && c.repository === scope.repository && c.session === scope.session,
       "candidate_not_found",
     );
+    candidateInput.parse({
+      kind: c.kind,
+      target: c.target,
+      baseVersion: c.baseVersion,
+      before: c.before,
+      after: c.after,
+      sources: c.sources,
+    });
+    check(
+      c.version === candidateVersion(c) &&
+        c.diff.before === c.before &&
+        c.diff.after === c.after,
+      "candidate_integrity",
+    );
+    check(
+      digest(Object.keys(c.lineage).sort()) ===
+        digest([...new Set(c.sources)].sort()),
+      "learning_provenance",
+    );
+    return c;
+  }
+  get(scope: Session, key: string) {
+    const c = this.snapshot(scope, key);
+    for (const source of c.sources) {
+      const actual = this.artifacts.source(scope, source);
+      check(
+        actual.hash === c.lineage[source]?.hash &&
+          actual.trust === c.lineage[source]?.trust,
+        "learning_provenance_changed",
+      );
+    }
     return c;
   }
   privacyReview(
@@ -283,16 +380,21 @@ export class Learning {
     );
     check(
       decision.candidateHash === digest(c.after) &&
-        decision.publicSources &&
-        decision.noPrivateContent &&
-        decision.metadataReviewed &&
-        !decision.uncertain,
+        decision.publicSources === true &&
+        decision.noPrivateContent === true &&
+        decision.metadataReviewed === true &&
+        decision.uncertain === false,
       "privacy_review_failed",
     );
     this.store.put(
       "privacy-review",
       key,
-      { ...decision, reviewer, repository: scope.repository },
+      {
+        ...decision,
+        reviewer,
+        repository: scope.repository,
+        candidateVersion: c.version,
+      },
       scope.repository,
       scope.session,
     );
@@ -306,28 +408,38 @@ export class Learning {
         c.status === "eligible" &&
           e?.eligible &&
           e.candidate === c.id &&
+          e.candidateVersion === c.version &&
           e.baselineVersion === c.baseVersion,
         "learning_ineligible",
       );
       const suite = this.store.get<Suite>("suite", e.suite);
       check(suite, "suite_missing");
       check(
+        suite.id === digest({ version: suite.version, cases: suite.cases }),
+        "suite_hash",
+      );
+      check(
         this.assess(suite, e.baseline, e.proposed).eligible,
         "learning_ineligible",
       );
       const localKey = `${scope.repository}:${c.target}`,
         current = this.store.get<Skill>("skill", localKey);
+      if (current) validateMaterial(current);
       check(
-        (current?.version ?? "initial") === c.baseVersion,
+        (current && !current.revoked ? current.version : "initial") ===
+          c.baseVersion &&
+          (current && !current.revoked ? current.content : "") === c.before,
         "learning_baseline",
       );
       if (global) {
         const privacy = this.store.get<{
           candidateHash: string;
           repository: string;
+          candidateVersion: string;
         }>("privacy-review", key);
         check(
           privacy?.repository === scope.repository &&
+            privacy.candidateVersion === c.version &&
             privacy.candidateHash === digest(c.after),
           "global_privacy_required",
         );
@@ -335,13 +447,15 @@ export class Learning {
       const targetScope = global ? "global" : scope.repository;
       // Global metadata deliberately contains no repository identity, candidate id, source references, or private lineage.
       const skill: Skill = {
+        format: 1,
         id: global ? id() : c.target,
-        version: c.version,
+        version: "",
         content: c.after,
         kind: c.kind,
         revoked: false,
         scope: targetScope,
       };
+      skill.version = materialVersion(skill);
       if (current)
         this.store.put(
           "skill-history",
@@ -360,7 +474,15 @@ export class Learning {
       this.store.put(
         "promotion",
         key,
-        { skill: skill.id, scope: targetScope, version: skill.version },
+        {
+          skill: skill.id,
+          scope: targetScope,
+          version: skill.version,
+          previousVersion:
+            !global && current && !current.revoked
+              ? current.version
+              : undefined,
+        },
         scope.repository,
         scope.session,
       );
@@ -380,19 +502,50 @@ export class Learning {
   }
   rollback(scope: Session, key: string) {
     this.store.transaction(() => {
-      const c = this.get(scope, key),
-        p = this.store.get<{ skill: string; scope: string; version: string }>(
-          "promotion",
-          key,
-        );
+      // Revocation remains possible if the original evidence is invalidated.
+      // The immutable candidate snapshot and exact publication still must match.
+      const c = this.snapshot(scope, key),
+        p = this.store.get<{
+          skill: string;
+          scope: string;
+          version: string;
+          previousVersion?: string;
+        }>("promotion", key);
       check(c.status === "promoted" && p, "promotion_missing");
       const skill = this.store.get<Skill>("skill", `${p.scope}:${p.skill}`);
       check(skill?.version === p.version, "rollback_version");
+      validateMaterial(skill);
       skill.revoked = true;
+      this.store.put(
+        "skill-history",
+        `${p.scope}:${p.skill}:${skill.version}`,
+        skill,
+        p.scope === "global" ? "" : scope.repository,
+      );
+      let restored: Skill | undefined;
+      if (p.previousVersion) {
+        try {
+          const prior = validateMaterial(
+            this.store.get(
+              "skill-history",
+              `${p.scope}:${p.skill}:${p.previousVersion}`,
+            ),
+          );
+          if (
+            !prior.revoked &&
+            prior.id === p.skill &&
+            prior.scope === p.scope &&
+            prior.version === p.previousVersion
+          )
+            restored = prior;
+        } catch {
+          /* A missing or damaged prior version is never reinjected. */
+        }
+      }
       this.store.put(
         "skill",
         `${p.scope}:${p.skill}`,
-        skill,
+        restored ?? skill,
         p.scope === "global" ? "" : scope.repository,
       );
       c.status = "revoked";
@@ -406,7 +559,12 @@ export class Learning {
         this.operations.invalidate(s.session, "skill_rollback");
       this.store.audit(
         "learning.rolled_back",
-        { candidate: key, version: p.version, restartRequired: true },
+        {
+          candidate: key,
+          version: p.version,
+          restoredVersion: restored?.version,
+          restartRequired: true,
+        },
         scope.repository,
         scope.session,
       );
