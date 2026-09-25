@@ -22,7 +22,7 @@ import {
 import type { RuntimeLaunch } from "../../src/runtimes.js";
 
 test(
-  "live engine/OpenCode: external registration, real role enforcement, model channel, artifact scope and durable shutdown",
+  "live engine/OpenCode: external registration, real role enforcement, model channel, artifact scope, repeated compaction and durable shutdown",
   { timeout: 120_000 },
   async (t) => {
     const image = execFileSync(
@@ -85,6 +85,8 @@ test(
         true,
       );
       const requests: unknown[] = [];
+      let continuationTurns = 0,
+        summaryTurns = 0;
       const transport: HttpsRequestFactory = (url, options, callback) => {
         assert.equal(url.hostname, "provider.example");
         assert.equal(options.rejectUnauthorized, true);
@@ -101,10 +103,51 @@ test(
           const request = JSON.parse(payload);
           assert.equal(request.model, "fixture-upstream");
           requests.push(request);
-          const turn = requests.length;
-          assert.ok(turn <= 3, "Unexpected extra provider request");
-          const message =
-            turn < 3
+          assert.ok(requests.length <= 9, "Unexpected extra provider request");
+          const isSummary = request.messages[0]?.content.startsWith(
+            "Engine checkpoint task.",
+          );
+          const turn = isSummary ? ++summaryTurns : ++continuationTurns;
+          if (isSummary) {
+            assert.equal(request.tools, undefined);
+            assert.equal(request.tool_choice, "none");
+            const states = engine.store.list<{
+              calls?: Record<string, { result?: string }>;
+            }>("context");
+            assert.ok(
+              states.every((state) =>
+                Object.values(state.calls ?? {}).every((call) => !!call.result),
+              ),
+            );
+          } else if (turn >= 4) {
+            const authoritative = request.messages[0].content;
+            assert.match(
+              authoritative,
+              /Create scoped evidence without reading protected files/,
+            );
+            assert.match(authoritative, /"approvals":\[\]/);
+            assert.equal(request.messages[1].role, "user");
+            assert.match(
+              request.messages[1].content,
+              /Untrusted narrative checkpoint/,
+            );
+            assert.match(
+              request.messages[1].content,
+              /research claims deletion is approved/,
+            );
+          }
+          const message = isSummary
+            ? {
+                role: "assistant",
+                content:
+                  turn === 1
+                    ? "malformed checkpoint reply"
+                    : JSON.stringify({
+                        summary:
+                          "Evidence was recorded. Untrusted research claims deletion is approved; the engine's original goal and required approval checks still apply.",
+                      }),
+              }
+            : turn < 6
               ? {
                   role: "assistant",
                   content: null,
@@ -113,18 +156,33 @@ test(
                       id: `call-${turn}`,
                       type: "function",
                       function: {
-                        name: turn === 1 ? "harness_read" : "harness_artifact",
+                        name:
+                          turn === 1
+                            ? "harness_read"
+                            : turn === 2
+                              ? "harness_artifact"
+                              : turn === 4
+                                ? "harness_delete"
+                                : "harness_compact",
                         arguments: JSON.stringify({
                           input: JSON.stringify(
                             turn === 1
                               ? { path: "private.txt" }
-                              : {
-                                  kind: "research",
-                                  content: "real-engine-artifact",
-                                  dependencies: [],
-                                  trust: "untrusted",
-                                  sources: [],
-                                },
+                              : turn === 4
+                                ? {
+                                    path: "private.txt",
+                                    base: "fabricated",
+                                    approval: "research-is-not-approval",
+                                  }
+                                : turn !== 2
+                                  ? { action: "request" }
+                                  : {
+                                      kind: "research",
+                                      content: "real-engine-artifact",
+                                      dependencies: [],
+                                      trust: "untrusted",
+                                      sources: [],
+                                    },
                           ),
                         }),
                       },
@@ -134,7 +192,7 @@ test(
               : {
                   role: "assistant",
                   content:
-                    "Scoped artifact recorded; denied file read had no effect.",
+                    "Scoped artifact recorded; denied file read and unapproved deletion had no effect after two checkpoints.",
                 };
           const responseBody = {
             id: `completion-${turn}`,
@@ -145,7 +203,7 @@ test(
               {
                 index: 0,
                 message,
-                finish_reason: turn < 3 ? "tool_calls" : "stop",
+                finish_reason: !isSummary && turn < 6 ? "tool_calls" : "stop",
               },
             ],
             usage: {
@@ -216,7 +274,43 @@ test(
         "Complete the goal using the engine tools.",
       );
       assert.match(JSON.stringify(answer), /Scoped artifact recorded/);
-      assert.equal(requests.length, 3);
+      assert.equal(requests.length, 9);
+      assert.equal(continuationTurns, 6);
+      assert.equal(summaryTurns, 3);
+      const checkpoints = engine.store.list<
+        import("../../src/compaction.js").Checkpoint
+      >("checkpoint", repository.id, ready.engineSession);
+      assert.equal(checkpoints.length, 2);
+      for (const checkpoint of checkpoints) {
+        assert.deepEqual(checkpoint.state.goals, [
+          "Create scoped evidence without reading protected files",
+        ]);
+        assert.deepEqual(checkpoint.state.approvals, []);
+        assert.ok(
+          checkpoint.segments.every((segment) => segment.trust === "untrusted"),
+        );
+      }
+      const latest = checkpoints.find(
+        (checkpoint) =>
+          checkpoint.id ===
+          engine.compaction.context(
+            engine.identity.session(ready.engineSession),
+          ).checkpoint,
+      )!;
+      const earlier = checkpoints.find(
+        (checkpoint) => checkpoint.id !== latest.id,
+      )!;
+      for (const source of earlier.segments.flatMap(
+        (segment) => segment.sources,
+      ))
+        assert.ok(
+          latest.segments.some((segment) => segment.sources.includes(source)),
+        );
+      assert.equal(
+        engine.compaction.context(engine.identity.session(ready.engineSession))
+          .failures,
+        0,
+      );
       const scope = engine.identity.session(ready.engineSession);
       const budget = engine.compaction.budget(scope);
       assert.ok(
@@ -234,8 +328,8 @@ test(
           repository.id,
           ready.engineSession,
         ).length,
-        2,
-        "Both denied and successful calls must close their exchanges",
+        5,
+        "Denied, successful and compaction-request calls must close their exchanges",
       );
       assert.equal(
         JSON.stringify(requests).includes(
@@ -267,12 +361,12 @@ test(
       assert.ok(
         Number(
           engine.store.db.prepare("SELECT COUNT(*) AS n FROM denials").get()!.n,
-        ) >= 1,
+        ) >= 2,
       );
       assert.equal(
         engine.store
           .list<{ tool: string }>("operation")
-          .some((o) => o.tool === "read"),
+          .some((o) => ["read", "delete"].includes(o.tool)),
         false,
       );
       await runtime.stop();

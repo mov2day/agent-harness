@@ -316,7 +316,19 @@ export function createEngineServer(
         );
         if (url.pathname === "/v1/capabilities/renew")
           result = engine.identity.renew(token, connection);
-        else if (url.pathname === "/v1/context/tool-result") {
+        else if (url.pathname === "/v1/context/tool-start") {
+          const d = z
+            .object({
+              call: z.string().min(1).max(128),
+              tool: z.string(),
+              args: z.unknown(),
+            })
+            .strict()
+            .parse(data);
+          const scope = engine.identity.authenticate(token, connection);
+          engine.operations.authorize(scope, "compact", { action: "context" });
+          result = engine.compaction.claimTool(scope, d.call, d.tool, d.args);
+        } else if (url.pathname === "/v1/context/tool-result") {
           const d = z
             .object({
               call: z.string().min(1).max(128),

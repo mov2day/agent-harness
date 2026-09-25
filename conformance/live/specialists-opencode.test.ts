@@ -184,16 +184,33 @@ test(
             const assigned = system.match(
               /Engine-assigned session: (\{[^\n]+\})/,
             );
+            const isSummary = request.messages[0]?.content.startsWith(
+              "Engine checkpoint task.",
+            );
             assert.ok(
-              assigned,
+              isSummary || assigned,
               "The runtime must receive its engine-assigned role",
             );
-            const { id: sessionId } = JSON.parse(assigned[1]!);
+            const sessionId = isSummary
+              ? JSON.parse(request.messages[1].content).engineSession
+              : JSON.parse(assigned![1]!).id;
             const session = engine.identity.session(sessionId);
             requests.push({ session: sessionId, payload: request });
-            assert.ok(requests.length <= 50, "Unexpected extra model loop");
+            assert.ok(requests.length <= 60, "Unexpected extra model loop");
             let action: { name: string; args: unknown } | string;
-            if (session.role === "Conductor") {
+            if (isSummary) {
+              assert.equal(request.tools, undefined);
+              const context = engine.compaction.context(session);
+              assert.ok(
+                Object.values(context.calls ?? {}).every(
+                  (call) => !!call.result,
+                ),
+              );
+              action = JSON.stringify({
+                summary:
+                  "Continue the current explicitly assigned task. Prior reviews apply only to their exact artifact versions. Follow the engine's current stage and approvals.",
+              });
+            } else if (session.role === "Conductor") {
               const next = actions[conductorTurn++];
               assert.ok(next, "Unexpected Conductor turn");
               action = next();
@@ -212,15 +229,17 @@ test(
               if (session.role === "Reviewer") {
                 action =
                   turn === 0
-                    ? {
-                        name: "review",
-                        args: {
-                          kind: "stage",
-                          artifact: Object.keys(task.artifacts)[0],
-                          findings: [],
-                        },
-                      }
-                    : "Reviewed the explicitly shared artifact with no blocking findings.";
+                    ? { name: "compact", args: { action: "request" } }
+                    : turn === 1
+                      ? {
+                          name: "review",
+                          args: {
+                            kind: "stage",
+                            artifact: Object.keys(task.artifacts)[0],
+                            findings: [],
+                          },
+                        }
+                      : "Reviewed the explicitly shared artifact with no blocking findings.";
               } else if (turn === 0) {
                 action = {
                   name: "artifact",
@@ -365,6 +384,19 @@ test(
         tasks.filter((task) => task.session === reviewers[0]!.session).length,
         5,
       );
+      const reviewerCheckpoints = engine.store.list<
+        import("../../src/compaction.js").Checkpoint
+      >("checkpoint", repository.id, reviewers[0]!.session);
+      assert.equal(
+        reviewerCheckpoints.length,
+        5,
+        "The retained Reviewer must continue across a checkpoint for every assignment",
+      );
+      assert.ok(
+        reviewerCheckpoints.every((checkpoint) =>
+          checkpoint.segments.every((segment) => segment.trust === "untrusted"),
+        ),
+      );
       const launches = engine.store.list<RuntimeLaunch>("runtime-launch");
       assert.equal(launches.length, 7);
       assert.equal(
@@ -402,7 +434,7 @@ test(
         );
       }
       t.diagnostic(
-        `${requests.length} real runtime model turns; ten completed assignments; five passed stages; seven containers removed`,
+        `${requests.length} model requests including five Reviewer checkpoints; ten completed assignments; five passed stages; seven containers removed`,
       );
     } finally {
       await runtime?.stop().catch(() => {});

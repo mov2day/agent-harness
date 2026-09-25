@@ -137,6 +137,7 @@ export const modelRequestSchema = z
     (value) => Buffer.byteLength(JSON.stringify(value)) <= 2_000_000,
     "Model request exceeds the context transport limit",
   );
+export type ModelRequest = z.infer<typeof modelRequestSchema>;
 const profileSchema = z
   .object({
     id: z.string().regex(/^[a-z0-9_-]{1,64}$/),
@@ -282,12 +283,22 @@ export class ModelChannel {
       maxOutputTokens: model.maxOutputTokens,
     };
   }
-  async send(op: Operation, signal: AbortSignal, contextOutputLimit?: number) {
+  async send(
+    op: Operation,
+    signal: AbortSignal,
+    contextOutputLimit?: number,
+    prepared?: {
+      request: ModelRequest;
+      purpose: "continuation" | "compaction";
+    },
+  ) {
     const current = this.operations.validate(op),
       scope = this.operations.identity.session(current.session),
       setting = scope.model;
     check(setting, "model_not_assigned");
-    const input = modelRequestSchema.parse(current.args.request);
+    const input = modelRequestSchema.parse(
+      prepared?.request ?? current.args.request,
+    );
     check(
       input.model === setting.model &&
         (!input.reasoning_effort ||
@@ -398,6 +409,8 @@ export class ModelChannel {
           address: target.address,
           hash: hash(body),
           maxOutputTokens: outputLimit,
+          purpose: prepared?.purpose ?? "continuation",
+          requestHash: hash(payload),
         },
         op.repository,
         op.session,

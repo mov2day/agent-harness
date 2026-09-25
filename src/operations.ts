@@ -80,7 +80,7 @@ export const toolSchemas = {
     .strict(),
   compact: z.union([
     z.object({ checkpoint: z.unknown() }).strict(),
-    z.object({ action: z.literal("context") }).strict(),
+    z.object({ action: z.enum(["context", "request"]) }).strict(),
     z.object({ action: z.literal("get"), id: z.string() }).strict(),
   ]),
   learn: z.object({ candidate: z.unknown() }).strict(),

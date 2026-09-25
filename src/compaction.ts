@@ -29,6 +29,9 @@ export interface ContextState {
   paused: boolean;
   tokenizer?: Tokenizer;
   inference?: string;
+  compacting?: string;
+  requested?: boolean;
+  history?: { checkpoint: string; prefix: string[] };
   optionalMessages?: string[];
   calls?: Record<
     string,
@@ -199,8 +202,34 @@ export class Compaction {
       incompleteExchange:
         !!c.exchange ||
         !!c.inference ||
+        !!c.compacting ||
         Object.values(c.calls ?? {}).some((call) => !call.result),
     };
+  }
+  measure(value: unknown, tokenizer: Tokenizer, ceiling: number) {
+    return this.counter.count(value, tokenizer, ceiling);
+  }
+  request(scope: Session) {
+    this.current(scope);
+    const c = this.context(scope);
+    c.requested = true;
+    this.saveContext(scope, c);
+    return { requested: true, when: "after_tool_results" };
+  }
+  startCompaction(scope: Session, operation: string) {
+    this.current(scope);
+    check(!this.budget(scope).incompleteExchange, "tool_exchange_incomplete");
+    const c = this.context(scope);
+    check(!c.paused, "context_paused");
+    c.compacting = operation;
+    this.saveContext(scope, c);
+  }
+  endCompaction(scope: Session, operation: string) {
+    const c = this.context(scope);
+    if (c.compacting === operation) {
+      delete c.compacting;
+      this.saveContext(scope, c);
+    }
   }
   async beginModel(
     scope: Session,
@@ -368,6 +397,27 @@ export class Compaction {
       delete c.inference;
       this.saveContext(scope, c);
     }
+  }
+  claimTool(scope: Session, call: string, tool: string, args: unknown) {
+    this.current(scope);
+    const c = this.context(scope);
+    check(
+      !c.compacting && !c.inference && !c.paused,
+      "tool_exchange_incomplete",
+    );
+    const expected =
+      c.calls && Object.hasOwn(c.calls, call) ? c.calls[call] : undefined;
+    const replay = this.store.get<{ tool: string; arguments: string }>(
+      "context-tool-result",
+      digest([scope.session, call]),
+    );
+    const bound = expected ?? replay;
+    check(bound, "tool_exchange_unknown");
+    check(
+      bound.tool === tool && bound.arguments === digest(args),
+      "tool_exchange_identity",
+    );
+    return { allowed: true };
   }
   async completeTool(
     scope: Session,
@@ -600,9 +650,35 @@ export class Compaction {
       return result;
     });
   }
-  accept(scope: Session, input: unknown): Checkpoint {
+  accept(
+    scope: Session,
+    input: unknown,
+    automatic?: {
+      operation: string;
+      prefix: string[];
+      used: number;
+      capacity: number;
+      reserved: number;
+      tokenizer: Tokenizer;
+    },
+  ): Checkpoint {
     const context = this.context(scope);
-    check(!this.budget(scope).incompleteExchange, "tool_exchange_incomplete");
+    if (automatic) {
+      this.current(scope);
+      check(
+        context.compacting === automatic.operation &&
+          !context.exchange &&
+          !context.inference &&
+          !Object.values(context.calls ?? {}).some((call) => !call.result),
+        "tool_exchange_incomplete",
+      );
+      check(
+        context.capacity === automatic.capacity &&
+          context.reserved === automatic.reserved,
+        "context_configuration_changed",
+      );
+    } else
+      check(!this.budget(scope).incompleteExchange, "tool_exchange_incomplete");
     try {
       return this.store.transaction(() => {
         const candidate = checkpointSchema.parse(input),
@@ -635,9 +711,8 @@ export class Compaction {
           repository: scope.repository,
           created: this.store.clock.now(),
         };
-        const size = Math.ceil(
-          Buffer.byteLength(JSON.stringify(checkpoint)) / 3,
-        );
+        const size =
+          automatic?.used ?? Buffer.byteLength(JSON.stringify(checkpoint));
         check(
           size < 0.7 * (context.capacity - context.reserved),
           "checkpoint_too_large",
@@ -653,6 +728,14 @@ export class Compaction {
         context.failures = 0;
         context.paused = false;
         context.used = size;
+        context.requested = false;
+        if (automatic) {
+          context.history = {
+            checkpoint: checkpoint.id,
+            prefix: automatic.prefix,
+          };
+          context.tokenizer = automatic.tokenizer;
+        } else if (context.history) context.history.checkpoint = checkpoint.id;
         this.store.put(
           "context",
           scope.session,
@@ -673,33 +756,36 @@ export class Compaction {
         return checkpoint;
       });
     } catch (error) {
-      this.store.transaction(() => {
-        const latest = this.context(scope);
-        latest.failures++;
-        if (latest.failures >= 2) {
-          latest.paused = true;
-          this.invalidate(scope.session, "compaction_failed");
-        }
-        this.store.put(
-          "context",
-          scope.session,
-          latest,
-          scope.repository,
-          scope.session,
-        );
-        this.store.audit(
-          "context.compaction_failed",
-          {
-            attempt: latest.failures,
-            paused: latest.paused,
-            error: String(error),
-          },
-          scope.repository,
-          scope.session,
-        );
-      });
+      if (!automatic) this.failed(scope, error);
       throw error;
     }
+  }
+  failed(scope: Session, error: unknown) {
+    this.store.transaction(() => {
+      const latest = this.context(scope);
+      latest.failures++;
+      if (latest.failures >= 2) {
+        latest.paused = true;
+        this.invalidate(scope.session, "compaction_failed");
+      }
+      this.store.put(
+        "context",
+        scope.session,
+        latest,
+        scope.repository,
+        scope.session,
+      );
+      this.store.audit(
+        "context.compaction_failed",
+        {
+          attempt: latest.failures,
+          paused: latest.paused,
+          error: String(error),
+        },
+        scope.repository,
+        scope.session,
+      );
+    });
   }
   get(scope: Session, key: string) {
     const c = this.store.get<Checkpoint>("checkpoint", key);

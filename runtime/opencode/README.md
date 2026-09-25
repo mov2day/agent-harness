@@ -57,10 +57,14 @@ The host never replays a task whose claim survived without its local execution s
 
 ## Context accounting
 
-Host model profiles accept `contextWindow` (default 32,768) and `tokenizer` (`o200k_base`, `cl100k_base`, or the conservative `utf8_bytes` fallback). Encoding data is bundled locally. Counts include framing allowances and are budget estimates; provider-reported usage can increase them. Tokenization runs outside the authority event loop with bounded input, queue depth and deadlines. The engine limits output to the remaining usable space, reports compaction needed at 70%, and rejects new optional context at 90%.
+Host model profiles accept `contextWindow` (default 32,768) and `tokenizer` (`o200k_base`, `cl100k_base`, or the conservative `utf8_bytes` fallback). Encoding data is bundled locally. Counts include framing allowances and are budget estimates; provider-reported usage can increase them. Tokenization runs outside the authority event loop with bounded input, queue depth and deadlines. The engine limits output to the remaining usable space, starts compaction near 70% at a complete exchange boundary, and rejects new optional context at 90%.
 
 The trusted host reports completion for each exact model-issued tool call after any delegated task finishes. Pending calls prevent further inference and checkpoint acceptance. Large tool results return untrusted artifact references; existing artifact identity and provenance remain intact. Duplicate delivery cannot spend the budget twice. Unsafe continuation pauses the session through shared authority invalidation.
 
-Automatic checkpoint generation/context replacement and bounded artifact paging are not yet integrated. A long-running conversation can therefore reach a safe pause instead of continuing automatically.
+The host rebuilds authoritative instructions before every provider request. Automatic compaction archives the covered conversation, requests a bounded tool-free summary from the assigned model, and commits the checkpoint with complete engine state and source lineage. Narrative remains untrusted. Later provider requests replace the exact covered prefix with that checkpoint; the host rejects changed transcript prefixes. A model may request an earlier checkpoint with `harness_compact` and `{"action":"request"}`. The request waits until all tool results complete. The host admits only exact model-issued calls before dispatch, including safe replay checks.
 
-**Full release certification is still pending.** Integrated compaction/learning, full engine-backed conformance on both host platforms and separate Codex runtime verification remain required.
+A failed compaction retains the previous checkpoint and gets one retry before the session pauses through shared invalidation. The model request audit records the inference purpose and exact payload hash. The live engine test exercises two checkpoints, a malformed summary retry and denied deletion after an injected summary. The retained Reviewer test exercises five checkpoints across five separate assignments.
+
+Bounded artifact paging and clean checkpoint restart/reload remain unfinished. The runtime retains its own local transcript under the transport size limit. Full authoritative state and source references are preserved; an oversized checkpoint pauses safely.
+
+**Full release certification is still pending.** Learning and clean restart integration, full engine-backed conformance on both host platforms and separate Codex runtime verification remain required.

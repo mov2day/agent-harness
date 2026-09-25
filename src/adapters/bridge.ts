@@ -226,6 +226,13 @@ export class IntegrationBridge {
       this.headers(),
     );
   }
+  claimTool(call: string, tool: string, args: unknown) {
+    return this.transport.request(
+      "/v1/context/tool-start",
+      { call, tool, args },
+      this.headers(),
+    );
+  }
   async model(request: unknown, idempotencyKey: string) {
     return this.transport.request(
       "/v1/model",

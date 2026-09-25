@@ -84,6 +84,12 @@ export class ExternalOpenCode {
           return {
             ...relay,
             execute: async (request) => {
+              check(request.session === rawSession, "runtime_session_spoof");
+              await this.bridge.claimTool(
+                request.call,
+                request.tool,
+                request.args,
+              );
               let operation: Operation;
               try {
                 const result = (await relay.execute(request)) as Operation;

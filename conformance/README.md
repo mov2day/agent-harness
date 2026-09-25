@@ -54,7 +54,7 @@ The provider and engine replies in this transport test are deterministic fixture
 
 The integration test runs real HTTP registration, scoped capabilities, launch preparation, independent container inspection, context retrieval, the model-channel service, role admission, SQLite persistence and shutdown. A scripted provider requests a forbidden Conductor file read, then an allowed artifact write. The test verifies denial without disclosure, repository/session ownership, untrusted artifact provenance, terminated authority, a durable stopped outcome and actual container removal.
 
-Provider transport and runtime-certificate evidence are explicit disposable fixtures. No test certificate is installed in operator state or represented as independent release approval. Linux-host runtime integration, model-driven compaction and Codex runtime conformance remain open.
+Provider transport and runtime-certificate evidence are explicit disposable fixtures. No test certificate is installed in operator state or represented as independent release approval. At that milestone, Linux-host runtime integration, model-driven compaction and Codex runtime conformance remained open; subsequent compaction evidence is recorded below.
 
 ### Live specialist workflow
 
@@ -67,6 +67,14 @@ The test initially exposed missing context in actual provider requests, despite 
 ### Live context accounting
 
 On 2026-09-24 the production engine integration and complete specialist workflow passed again on macOS using image `411216a2fdc7`. Model requests now traverse the background tokenizer and persisted context budgets. The integration asserts that full prompt accounting exceeds deliberately understated fixture usage, both denied and successful tool calls have durable completion records, and no exchange remains incomplete. The specialist run again completed 42 model turns, ten assignments, five stages and cleanup of seven containers. Provider responses and runtime certificates remain fixtures. Automatic compaction and Linux-host OpenCode orchestration are still pending.
+
+### Automatic checkpoint continuation
+
+On 2026-09-25 the macOS host passed **105/105** tests, type checking and production build. The live engine scenario passed with runtime image `sha256:64291e7393e537e83005b13d73a190ec6adc1b7fb980102459cc302f9240b2c3`. It completed six runtime model turns and three summary requests: the first summary was deliberately malformed, the retry succeeded, and a later checkpoint succeeded again. Exact goals, absence of fabricated approvals and untrusted lineage survived both checkpoints. The provider received the host-projected conversation afterward, and a requested deletion remained denied with no file effect.
+
+The live specialist scenario passed with the same image: 52 model requests, ten assignments, five reviewed stages, five accepted checkpoints in the retained Reviewer and durable removal of all seven containers. Checkpoints occur after complete tool results and before the next review continuation. Unit cases also cover threshold-triggered compaction, the 90% optional gate, altered transcript prefixes, pending work, concurrent requests, revocation, oversized summaries, forbidden summary tool calls and failure preservation. Provider decisions/summaries and runtime certificates remain fixtures; these observations do not certify model quality or Linux-host OpenCode containment.
+
+The Linux rebuild for this milestone was not executed: automatic approval review reached its usage limit. The last Linux evidence remains the 95-test image `462e8161047b`; automatic compaction still needs its Linux rerun.
 
 ## Authorization mechanism benchmark
 

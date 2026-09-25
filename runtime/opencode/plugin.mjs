@@ -21,7 +21,7 @@ const definitions = {
   review:
     'Reviewer only: issue findings for a shared artifact. Input: {"kind":"stage"|"change","artifact":id,"findings":[{"message":string,"blocking":boolean}]}.',
   compact:
-    'Read authoritative context with {"action":"context"}; submit an exact provenance-preserving checkpoint with {"checkpoint":{"state":authoritativeState,"segments":[{"text":string,"sources":id[],"trust":"untrusted"}]}}.',
+    'Read authoritative context with {"action":"context"}; request engine compaction at the next complete tool boundary with {"action":"request"}. The engine preserves exact authority and provenance and treats narrative summaries as untrusted.',
   learn:
     'Propose a learning candidate for independent evaluation and human approval. Input: {"candidate":object}. Never modifies policy or approvals.',
 };

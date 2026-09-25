@@ -2,7 +2,7 @@
 
 A local policy engine for coding agents, with specialized roles, review gates, controlled tools, and context management.
 
-**Implementation in progress.** The core engine, contained OpenCode launcher and specialist workflow are implemented. The live five-stage workflow passes on macOS with a scripted provider; full runtime conformance, compaction/learning integration and Codex runtime verification remain open. The [delivery ledger](docs/IMPLEMENTATION.md) tracks verified behavior and remaining release work against the [specification](docs/plan.MD).
+**Implementation in progress.** The core engine, contained OpenCode launcher and specialist workflow are implemented. The live five-stage workflow passes on macOS with a scripted provider; automatic compaction also passes with retained specialists. Full runtime conformance, learning/restart integration and Codex runtime verification remain open. The [delivery ledger](docs/IMPLEMENTATION.md) tracks verified behavior and remaining release work against the [specification](docs/plan.MD).
 
 ## Development
 

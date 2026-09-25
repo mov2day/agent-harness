@@ -20,6 +20,7 @@ import { CommandWorkers } from "./workers.js";
 import { Snapshots } from "./snapshots.js";
 import { Artifacts, Workflow } from "./workflow.js";
 import { Compaction } from "./compaction.js";
+import { ContextWindow } from "./context-window.js";
 import { Learning } from "./learning.js";
 import { ModelChannel } from "./model-channel.js";
 import { Runtimes, type RuntimeLaunch } from "./runtimes.js";
@@ -47,6 +48,7 @@ export class Engine {
   readonly workflow: Workflow;
   readonly specialists: Specialists;
   readonly compaction: Compaction;
+  readonly contextWindow: ContextWindow;
   readonly learning: Learning;
   readonly workers?: CommandWorkers;
   readonly snapshots: Snapshots;
@@ -155,6 +157,9 @@ export class Engine {
       this.compaction.setInvalidator((session, reason) =>
         this.operations.invalidate(session, reason),
       );
+      this.contextWindow = new ContextWindow(this.compaction, (scope) =>
+        this.specialists.context(scope),
+      );
       this.learning = new Learning(this.store, this.artifacts, this.operations);
       this.runtimes = initializedRuntimes = new Runtimes(
         this.store,
@@ -238,14 +243,31 @@ export class Engine {
       const scope = this.identity.session(op.session);
       switch (op.tool) {
         case "model": {
-          const outputLimit = await this.compaction.beginModel(
+          const profile = this.models.configuration(scope);
+          const prepared = await this.contextWindow.prepare(
             scope,
             op.id,
             op.args.request,
-            this.models.configuration(scope),
+            profile,
+            async (request, outputLimit) =>
+              (
+                await this.models.send(op, signal, outputLimit, {
+                  request,
+                  purpose: "compaction",
+                })
+              ).response,
+          );
+          const outputLimit = await this.compaction.beginModel(
+            scope,
+            op.id,
+            prepared,
+            profile,
           );
           try {
-            const result = await this.models.send(op, signal, outputLimit);
+            const result = await this.models.send(op, signal, outputLimit, {
+              request: prepared,
+              purpose: "continuation",
+            });
             await this.compaction.finishModel(scope, op.id, result.response);
             const artifact = this.artifacts.create(scope, {
               kind: "model-response",
@@ -341,6 +363,8 @@ export class Engine {
               )
             : this.workflow.review(scope, op.args.artifact, op.args.findings);
         case "compact":
+          if (op.args.action === "request")
+            return this.compaction.request(scope);
           return op.args.action === "context"
             ? {
                 state: this.compaction.authoritative(scope),
