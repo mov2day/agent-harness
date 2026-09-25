@@ -96,6 +96,12 @@ On 2026-09-25 macOS and Linux arm64 image `060770920dec` passed **124/124** test
 
 The engine-backed OpenCode test passed again using runtime image `0fbecf12d742`. Promotion now uses the production evaluator rather than injected score callbacks. It made 24 evaluation requests in addition to nine runtime continuations and three summaries, then verified fresh approved content, rollback and cleanup of all three containers. Provider replies remain scripted and certificates are disposable; no paid-provider/model-quality or independent release certification is claimed. The [evaluation guide](../docs/EVALUATIONS.md) describes the supported response-scoring scope.
 
+### Reviewed code change and executed test
+
+The expanded specialist workflow passed on macOS on 2026-09-25 with OpenCode image `0fbecf12d742` and worker image `73ba8e5b4a00`. It completed 68 model requests, fourteen assignments, five stage reviews and five Reviewer checkpoints. An Implementer proposed an exact invoice-total fix; a separate Reviewer checked it; the fixture owner approved through the origin-protected HTTP route; and the native broker changed the file. The default implementation human gate remained enabled and was approved through its owner route.
+
+A Verifier captured the changed source, proposed the exact test command, obtained separate review and owner approval, and ran three Python tests successfully in a real isolated worker. Attempted deletion of the test file returned `deletion_disabled`; its contents remained unchanged. Both mutation/execution operations have completed outcomes. The test verified removal of all seven runtime containers and the command worker. Formatting, type checking and diff checks passed. This closes the earlier descriptive-only implementation/execution gap for this integration scenario. Provider choices, owner decisions and certificates are scripted fixtures; Linux-host orchestration, autonomous model quality and independent release certification remain unverified. The task-centered UI demo remains to be completed.
+
 ## Authorization mechanism benchmark
 
 ```sh

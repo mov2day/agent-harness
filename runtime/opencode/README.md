@@ -15,6 +15,8 @@ This image pins OpenCode and its plugin package to **1.18.31**, with a pinned No
 
 ```sh
 docker build -f runtime/opencode/Dockerfile -t agent-harness-opencode:1.18.31 .
+docker build -f worker/Dockerfile -t agent-harness-worker:latest .
+npm run build:native
 npm run test:opencode:live
 npm run test:opencode:engine
 npm run test:opencode:specialists
@@ -26,7 +28,9 @@ The live test runs the actual binary and plugin through a scripted model respons
 
 The engine integration test uses the production HTTP bridge, registration, policy, leases, model channel, artifacts, container inspection and shutdown. It scripts only the provider responses, including a forbidden Conductor file read followed by an allowed artifact write. Its runtime certificate is an explicit disposable fixture, never release evidence.
 
-The specialist test exercises all five review stages with ten assignments and seven real containers. A Reviewer is reused within the original root; producer sessions are released after review. It checks artifact ownership and input lineage, separate connections, terminal task outcomes and actual removal of every container. The provider responses and certificate are disposable fixtures; the test does not evaluate model quality or replace the separate file/command and release conformance suites.
+The specialist test exercises all five review stages with fourteen assignments and seven real runtime containers. It proposes and independently reviews an invoice-total fix, obtains fixture-owner approval through the protected HTTP interface, applies the change through the file broker, and preserves the default implementation human gate. A separately reviewed and approved command runs three actual Python tests in a fresh isolated worker. Attempted deletion of the test file is denied without changing its content. A Reviewer is reused within the root, with five checkpoints across stage reviews. The test checks artifact ownership/dependencies and actual removal of every runtime and worker.
+
+Set `HARNESS_TEST_WORKER_IMAGE` to an existing worker image reference or immutable ID when not using the default tag above. Provider decisions, owner decisions and runtime certificates are disposable fixtures; file changes, command execution and containment checks are real. This is a repeatable integration scenario, not a live autonomous model-quality demonstration or independent release certification.
 
 The system-context hook mutates `output.system` in place. The pinned [OpenCode request preparation](https://github.com/anomalyco/opencode/blob/v1.18.31/packages/opencode/src/session/llm/request.ts#L52-L71) retains that original array. Reassigning the property silently loses the injected context; the specialist test asserts the engine-assigned role in the actual provider payload.
 
