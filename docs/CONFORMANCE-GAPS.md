@@ -1,12 +1,12 @@
-# Conformance matrix: remaining 25 cells (draft triage)
+# Conformance matrix: remaining 13 cells (draft triage)
 
-Status 2026-10-18: `conformance/matrix.json` covers 65 of 90 cells. This is a **draft for independent review**. Nothing here is an approved N/A: the spec (section 5) requires a reviewer other than the author, and a cell's approval goes stale when its scope files change. Evidence below was read from source, not run.
+Status 2026-10-18: `conformance/matrix.json` covers 77 of 90 cells. Section A below is done (tests in `test/conformance-delegation.test.ts` and `test/conformance-research.test.ts`); sections B and C remain. This is a **draft for independent review**. Nothing here is an approved N/A: the spec (section 5) requires a reviewer other than the author, and a cell's approval goes stale when its scope files change. Evidence below was read from source, not run.
 
 Run `npm run conformance:matrix -- --strict` for the live list.
 
-## A. New tests needed (real behavior, no test today)
+## A. New tests (done)
 
-Write these first, adversarial cases before happy paths.
+The 12 cells below now map to passing tests. Two findings while writing them: publishing a policy voids existing sessions and capabilities outright (stronger than the `policy_changed` check alone), and one test of the specialist limit initially miscounted an Implementer, which was a test error.
 
 | Cell | Test to write | Pass condition |
 |---|---|---|
