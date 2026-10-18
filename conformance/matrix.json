@@ -147,6 +147,26 @@
       "file": "test/containment.test.ts",
       "title": "OpenCode adapter: native tools, aliases, plugins"
     },
+    "ovAdapter": {
+      "file": "test/conformance-overrides.test.ts",
+      "title": "adapter: plugin-supplied or aliased"
+    },
+    "ovArgs": {
+      "file": "test/conformance-overrides.test.ts",
+      "title": "launcher arguments: only the documented"
+    },
+    "ovConfig": {
+      "file": "test/conformance-overrides.test.ts",
+      "title": "runtime configuration is fixed"
+    },
+    "ovPlugin": {
+      "file": "test/conformance-overrides.test.ts",
+      "title": "plugin definitions expose exactly"
+    },
+    "ovProc": {
+      "file": "test/conformance-overrides.test.ts",
+      "title": "launcher process: an override exits"
+    },
     "pathSpell": {
       "file": "test/conformance-gaps.test.ts",
       "title": "path spelling: traversal"
@@ -319,8 +339,7 @@
     },
     "paths/plugins": {
       "status": "test",
-      "tests": ["ocadapt", "contain"],
-      "needsReview": "Indirect: plugins cannot reach host paths because native tools are denied and the container has no host binds; no test drives a plugin-written path."
+      "tests": ["ovAdapter", "ovPlugin"]
     },
     "paths/aliases": {
       "status": "test",
@@ -423,17 +442,16 @@
       "tests": ["admission"]
     },
     "admission/cli_overrides": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["ovArgs", "ovProc", "ovConfig"]
     },
     "admission/plugins": {
       "status": "test",
-      "tests": ["ocadapt", "admission"],
-      "needsReview": "Indirect: the plugin task alias is denied and admission is engine-only; no test installs a plugin that calls admit."
+      "tests": ["ovAdapter", "ovPlugin"]
     },
     "admission/aliases": {
       "status": "test",
-      "tests": ["ocadapt", "admission"],
-      "needsReview": "Indirect: aliases of delegate/task are denied by the adapter test; admission limits are tested separately."
+      "tests": ["ovAdapter"]
     },
     "admission/delegation": {
       "status": "test",
@@ -460,17 +478,16 @@
       "tests": ["reviews"]
     },
     "reviews/cli_overrides": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["ovArgs", "ovProc", "ovConfig"]
     },
     "reviews/plugins": {
       "status": "test",
-      "tests": ["ocadapt", "capGate"],
-      "needsReview": "Indirect: a plugin has no engine capability bound to a Reviewer; no test attempts a review call from a plugin."
+      "tests": ["ovAdapter", "ovPlugin"]
     },
     "reviews/aliases": {
       "status": "test",
-      "tests": ["ocadapt", "capGate"],
-      "needsReview": "Indirect: same as reviews/plugins for tool aliases."
+      "tests": ["ovAdapter"]
     },
     "reviews/delegation": {
       "status": "test",
@@ -497,17 +514,16 @@
       "tests": ["mat"]
     },
     "skills/cli_overrides": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["ovArgs", "ovProc", "ovConfig"]
     },
     "skills/plugins": {
       "status": "test",
-      "tests": ["ocadapt", "matint"],
-      "needsReview": "Indirect: skills load only from engine-published material; no test injects a plugin-supplied skill."
+      "tests": ["ovAdapter", "ovPlugin"]
     },
     "skills/aliases": {
       "status": "test",
-      "tests": ["ocadapt", "matint"],
-      "needsReview": "Indirect: same as skills/plugins for aliases."
+      "tests": ["ovAdapter"]
     },
     "skills/delegation": {
       "status": "test",
@@ -534,17 +550,16 @@
       "tests": ["polCeiling", "polOverlap"]
     },
     "policy/cli_overrides": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["ovArgs", "ovProc", "ovConfig"]
     },
     "policy/plugins": {
       "status": "test",
-      "tests": ["ocadapt", "polCeiling"],
-      "needsReview": "Indirect: no tool exposes policy and publication is an owner route; no test attempts it from a plugin."
+      "tests": ["ovAdapter", "ovPlugin"]
     },
     "policy/aliases": {
       "status": "test",
-      "tests": ["ocadapt", "polCeiling"],
-      "needsReview": "Indirect: same as policy/plugins for aliases."
+      "tests": ["ovAdapter"]
     },
     "policy/delegation": {
       "status": "test",

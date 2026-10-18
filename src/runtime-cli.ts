@@ -2,21 +2,11 @@
 import { createInterface } from "node:readline/promises";
 import { resolve } from "node:path";
 import { check } from "./core.js";
+import { parseRuntimeArguments } from "./runtime-args.js";
 import { ExternalOpenCode } from "./adapters/external-opencode.js";
 import { HttpTransport, loadPairing } from "./adapters/bridge.js";
 
 const args = process.argv.slice(2);
-function option(flag: string) {
-  const at = args.indexOf(flag);
-  if (at === -1) return undefined;
-  const value = args[at + 1];
-  check(
-    value && !value.startsWith("--"),
-    "runtime_argument",
-    `Missing ${flag}`,
-  );
-  return value;
-}
 if (args.includes("--help") || !args.length) {
   process.stdout.write(
     "Externally start a contained OpenCode session.\n\nRequired: --repository ID --repository-path PATH --pairing FILE --certificate ID\nChoose: --goal TEXT or --restart-from PREVIOUS_ROOT_ID\nOptional: --engine http://127.0.0.1:4317 --once\n\nRun the engine separately. The owner must install current runtime evidence and configure role models first. The web interface does not launch root sessions. Restart requires completed cleanup and reconciliation of the old root and its specialists.\n",
@@ -28,6 +18,7 @@ if (args.includes("--help") || !args.length) {
     output: process.stdout,
   });
   try {
+    const { option, has } = parseRuntimeArguments(args);
     const repository = option("--repository"),
       repositoryPath = option("--repository-path"),
       pairing = option("--pairing"),
@@ -83,7 +74,7 @@ if (args.includes("--help") || !args.length) {
       for (const part of result.parts ?? [])
         if (part.type === "text" && part.text)
           process.stdout.write(`${part.text}\n`);
-      if (args.includes("--once")) break;
+      if (has("--once")) break;
       prompt = await input.question("Next instruction (empty to finish): ");
       if (!prompt.trim()) break;
     }

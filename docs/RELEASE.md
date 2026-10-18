@@ -19,9 +19,9 @@ Blocker rules are in [`conformance/release.ts`](../conformance/release.ts) and t
 
 These stay blockers until a person provides them. They cannot be generated or self-approved.
 
-1. **Independent matrix review.** 13 cells remain (see [CONFORMANCE-GAPS.md](CONFORMANCE-GAPS.md)): 9 indirect mappings to confirm and 4 N/A candidates to approve. The reviewer must differ from the author. Recording an N/A stores a hash of its scope files, so later source changes make it stale.
+1. **Matrix review (optional).** All 90 cells map to passing tests with no N/A, so none is required. An independent reviewer can still spot-check the mappings listed in [CONFORMANCE-GAPS.md](CONFORMANCE-GAPS.md).
 2. **Live provider run.** Provider replies in every live suite are scripted. The owner must run the restricted model channel against a real provider, using a credential kept in an owner-readable file outside the repository, and record the evidence path.
-3. **Release sign-off.** Create `conformance/release-signoff.json` after items 1 and 2:
+3. **Release sign-off.** Create `conformance/release-signoff.json` after item 2:
 
    ```json
    {
@@ -39,4 +39,4 @@ These stay blockers until a person provides them. They cannot be generated or se
 
 - **Linux host orchestration.** The Linux container suite runs the engine tests on Linux. The live OpenCode suites drive containers from the macOS host through a Linux VM. A run with the engine and launcher on a Linux host is still needed to meet "supported Linux and macOS environments" for OpenCode.
 - **Runtime certificates** in the live suites are disposable fixtures. Production certificates are an owner action.
-- **Cell-level N/A and indirect mappings** depend on reviewer judgement.
+- **Case-volume tests** use macOS disk images and are skipped on Linux.
