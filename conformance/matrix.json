@@ -39,6 +39,10 @@
       "file": "test/conformance-gaps.test.ts",
       "title": "command spelling: path aliases"
     },
+    "compAuth": {
+      "file": "test/conformance-lifecycle.test.ts",
+      "title": "compaction carries no authority"
+    },
     "compTools": {
       "file": "test/context-window.test.ts",
       "title": "automatic compaction: requested compaction waits"
@@ -82,6 +86,10 @@
     "httpreg": {
       "file": "test/server.test.ts",
       "title": "HTTP: browser registration, origin protection"
+    },
+    "learnAuth": {
+      "file": "test/conformance-lifecycle.test.ts",
+      "title": "learning carries no authority"
     },
     "learnGlob": {
       "file": "test/learning.test.ts",
@@ -185,10 +193,12 @@
       "status": "unmapped"
     },
     "identity/compaction": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["compAuth"]
     },
     "identity/learning": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["learnAuth"]
     },
     "roles/registration": {
       "status": "test",
@@ -219,10 +229,12 @@
       "tests": ["enfauth"]
     },
     "roles/compaction": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["compAuth"]
     },
     "roles/learning": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["learnAuth"]
     },
     "tools/registration": {
       "status": "test",
@@ -256,7 +268,8 @@
       "tests": ["compTools"]
     },
     "tools/learning": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["learnAuth"]
     },
     "paths/registration": {
       "status": "test",
@@ -286,10 +299,12 @@
       "tests": ["enfauth"]
     },
     "paths/compaction": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["compAuth"]
     },
     "paths/learning": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["learnAuth"]
     },
     "commands/registration": {
       "status": "test",
@@ -319,10 +334,12 @@
       "tests": ["enfauth"]
     },
     "commands/compaction": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["compAuth"]
     },
     "commands/learning": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["learnAuth"]
     },
     "network/registration": {
       "status": "test",
@@ -352,10 +369,12 @@
       "tests": ["gwtls", "gwred"]
     },
     "network/compaction": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["compAuth"]
     },
     "network/learning": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["learnAuth"]
     },
     "admission/registration": {
       "status": "test",
@@ -382,10 +401,12 @@
       "status": "unmapped"
     },
     "admission/compaction": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["compAuth"]
     },
     "admission/learning": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["learnAuth"]
     },
     "reviews/registration": {
       "status": "unmapped"
@@ -411,7 +432,8 @@
       "status": "unmapped"
     },
     "reviews/compaction": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["compAuth"]
     },
     "reviews/learning": {
       "status": "test",
@@ -441,7 +463,8 @@
       "status": "unmapped"
     },
     "skills/compaction": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["compAuth"]
     },
     "skills/learning": {
       "status": "test",
@@ -470,7 +493,8 @@
       "status": "unmapped"
     },
     "policy/compaction": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["compAuth"]
     },
     "policy/learning": {
       "status": "test",
