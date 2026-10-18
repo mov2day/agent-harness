@@ -7,7 +7,7 @@ import { hash } from "../src/core.js";
  * or an independently approved, non-stale N/A. Unmapped cells are visible gaps
  * that only strict (release) mode rejects. */
 type Cell =
-  | { status: "test"; tests: string[] }
+  | { status: "test"; tests: string[]; needsReview?: string }
   | {
       status: "na";
       reason: string;
@@ -30,6 +30,8 @@ export type Matrix = {
 export type MatrixReport = {
   errors: string[];
   unmapped: string[];
+  /** Mapped to indirect tests; a reviewer must confirm before release. */
+  needsReview: string[];
   total: number;
   covered: number;
 };
@@ -47,7 +49,8 @@ export function scopeHash(root: string, scope: string[]) {
 
 export function checkMatrix(matrix: Matrix, root: string): MatrixReport {
   const errors: string[] = [],
-    unmapped: string[] = [];
+    unmapped: string[] = [],
+    needsReview: string[] = [];
   const expected = matrix.rows.flatMap((row) =>
     matrix.columns.map((column) => `${row}/${column}`),
   );
@@ -73,7 +76,13 @@ export function checkMatrix(matrix: Matrix, root: string): MatrixReport {
       if (!cell.tests.length) errors.push(`${key}: no tests listed`);
       for (const id of cell.tests)
         if (!(id in matrix.tests)) errors.push(`${key}: unknown test ${id}`);
-      if (cell.tests.length && cell.tests.every((id) => id in matrix.tests))
+      if (cell.needsReview !== undefined && !cell.needsReview.trim())
+        errors.push(`${key}: needsReview has no rationale`);
+      if (cell.needsReview) needsReview.push(key);
+      else if (
+        cell.tests.length &&
+        cell.tests.every((id) => id in matrix.tests)
+      )
         covered++;
     } else if (cell.status === "na") {
       const before = errors.length;
@@ -98,7 +107,7 @@ export function checkMatrix(matrix: Matrix, root: string): MatrixReport {
       if (errors.length === before) covered++;
     } else errors.push(`${key}: unknown status`);
   }
-  return { errors, unmapped, total: expected.length, covered };
+  return { errors, unmapped, needsReview, total: expected.length, covered };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -109,11 +118,17 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   ) as Matrix;
   const report = checkMatrix(matrix, root);
   console.log(
-    `conformance matrix: ${report.covered}/${report.total} cells covered, ${report.unmapped.length} unmapped`,
+    `conformance matrix: ${report.covered}/${report.total} cells covered, ${report.unmapped.length} unmapped, ${report.needsReview.length} awaiting reviewer confirmation`,
   );
   for (const error of report.errors) console.error(`error: ${error}`);
   if (strict)
-    for (const key of report.unmapped) console.error(`unmapped: ${key}`);
+    for (const key of [...report.unmapped, ...report.needsReview])
+      console.error(
+        `${report.unmapped.includes(key) ? "unmapped" : "needs review"}: ${key}`,
+      );
   process.exitCode =
-    report.errors.length || (strict && report.unmapped.length) ? 1 : 0;
+    report.errors.length ||
+    (strict && (report.unmapped.length || report.needsReview.length))
+      ? 1
+      : 0;
 }

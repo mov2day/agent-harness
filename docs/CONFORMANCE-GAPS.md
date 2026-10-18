@@ -23,7 +23,9 @@ The 12 cells below now map to passing tests. Two findings while writing them: pu
 | policy/registration | Register, then publish a different policy; renew | Renewal fails with `policy_changed` (see `src/identity.ts` lines 398 and 520) |
 | reviews/registration | Fresh Conductor registration calls `review` and `change` approvals | `role_authority`; registration grants no review authority |
 
-## B. Map existing tests (reviewer to confirm they cover the cell)
+## B. Mapped to existing tests, awaiting reviewer confirmation
+
+These 9 cells are mapped in `conformance/matrix.json` with a `needsReview` rationale. They are **not** counted as covered, and `--strict` fails while any remain. To confirm a cell, the reviewer removes `needsReview` (or replaces the mapping with a direct test).
 
 | Cell | Existing test | Why it may suffice |
 |---|---|---|
