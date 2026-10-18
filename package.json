@@ -20,6 +20,7 @@
     "format": "prettier --write src web test scripts conformance runtime",
     "format:check": "prettier --check src web test scripts conformance runtime",
     "test:workers:live": "node scripts/build-native.mjs && node --import tsx --test --test-reporter=spec conformance/live/workers.test.ts",
+    "release:check": "node --import tsx scripts/release-check.ts",
     "benchmark:authorization": "node --import tsx conformance/authorization-benchmark.ts",
     "test:opencode:live": "node --import tsx --test --test-reporter=spec conformance/live/opencode.test.ts",
     "test:opencode:engine": "node --import tsx --test --test-reporter=spec conformance/live/engine-opencode.test.ts",
