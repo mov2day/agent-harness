@@ -1,15 +1,15 @@
-import React, { useEffect, useState, type FormEvent } from "react";
+import React, { useEffect, useRef, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import type { Engine } from "../src/engine.js";
 import type { Policy } from "../src/policy.js";
 import type { Candidate, Evaluation } from "../src/learning.js";
 import type { EvaluationJob, EvaluationRun } from "../src/evaluations.js";
 import "./app.css";
-type State = ReturnType<Engine["state"]>;
-type Page =
-  "Overview" | "Policy" | "Reviews" | "Context" | "Learning" | "Audit";
+import { Tasks } from "./Tasks.js";
+type State = ReturnType<Engine["state"]> & { previewNotice?: string };
+type Page = "Tasks" | "Policy" | "Reviews" | "Context" | "Learning" | "Audit";
 const pages: Page[] = [
-  "Overview",
+  "Tasks",
   "Policy",
   "Reviews",
   "Context",
@@ -353,7 +353,7 @@ function App() {
   const [token, setToken] = useState(""),
     [draftToken, setDraftToken] = useState(""),
     [state, setState] = useState<State>(),
-    [page, setPage] = useState<Page>("Overview"),
+    [page, setPage] = useState<Page>("Tasks"),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
@@ -498,7 +498,7 @@ function App() {
         </div>
         <div className="workspace-label">WORKSPACE</div>
         <nav aria-label="Main navigation">
-          {pages.map((p, i) => (
+          {(["Tasks", "Reviews"] as Page[]).map((p) => (
             <button
               key={p}
               className={page === p ? "selected" : ""}
@@ -508,13 +508,33 @@ function App() {
               }}
               aria-current={page === p ? "page" : undefined}
             >
-              <span className="nav-number">0{i + 1}</span>
               {p}
               {p === "Reviews" && gates.length > 0 && (
                 <span className="nav-count">{gates.length}</span>
               )}
             </button>
           ))}
+          <details
+            className="nav-advanced"
+            open={!["Tasks", "Reviews"].includes(page) || undefined}
+          >
+            <summary>Settings & diagnostics</summary>
+            {pages
+              .filter((p) => !["Tasks", "Reviews"].includes(p))
+              .map((p) => (
+                <button
+                  key={p}
+                  className={page === p ? "selected" : ""}
+                  onClick={() => {
+                    setPage(p);
+                    setNotice("");
+                  }}
+                  aria-current={page === p ? "page" : undefined}
+                >
+                  {p}
+                </button>
+              ))}
+          </details>
         </nav>
         <div className="sidebar-bottom">
           <span className="online-dot" /> Local engine
@@ -545,13 +565,11 @@ function App() {
           <div className="page-heading">
             <div>
               <p className="eyebrow">
-                {page === "Overview"
-                  ? "YOUR ENGINE, AT A GLANCE"
-                  : "ENGINE CONTROLS"}
+                {page === "Tasks" ? "YOUR CODING WORK" : "ENGINE CONTROLS"}
               </p>
               <h1>
-                {page === "Overview"
-                  ? "Session overview"
+                {page === "Tasks"
+                  ? "Your tasks"
                   : page === "Policy"
                     ? "Rules of engagement"
                     : page === "Reviews"
@@ -575,6 +593,11 @@ function App() {
               ↻ Refresh
             </button>
           </div>
+          {state.previewNotice && (
+            <div className="warning" role="note">
+              {state.previewNotice}
+            </div>
+          )}
           {error && (
             <div role="alert" className="error banner">
               {error}
@@ -594,203 +617,178 @@ function App() {
               {notice}
             </div>
           )}
-          {page === "Overview" && (
+          {page === "Tasks" && (
             <>
-              <div className="metrics">
-                <div>
-                  <span>Registered sessions</span>
-                  <strong>
-                    {state.sessions.length.toString().padStart(2, "0")}
-                  </strong>
-                  <small>{active.length} active</small>
-                </div>
-                <div>
-                  <span>Enforced sessions</span>
-                  <strong>
-                    {active
-                      .filter((s) => s.enforcement === "enforced")
-                      .length.toString()
-                      .padStart(2, "0")}
-                  </strong>
-                  <small>Verified containment required</small>
-                </div>
-                <div>
-                  <span>Needs attention</span>
-                  <strong>
-                    {(attention.length + gates.length)
-                      .toString()
-                      .padStart(2, "0")}
-                  </strong>
-                  <small>{gates.length} waiting for review</small>
-                </div>
-                <div>
-                  <span>Enrolled repositories</span>
-                  <strong>
-                    {state.repositories.length.toString().padStart(2, "0")}
-                  </strong>
-                  <small>Individually scoped</small>
-                </div>
-              </div>
-              {unverified.length > 0 && (
-                <div className="warning">
-                  <strong>
-                    {unverified.length} active session
-                    {unverified.length === 1 ? " is" : "s are"} unverified.
-                  </strong>{" "}
-                  Protected operations remain blocked until runtime containment
-                  is verified.
-                </div>
-              )}
-              <section>
-                <div className="section-heading">
-                  <h2>Sessions</h2>
-                  <span className="fine">
-                    Externally started · engine governed
-                  </span>
-                </div>
-                {!state.sessions.length ? (
-                  <Empty title="Ready for your first session">
-                    Enroll a repository, pair a trusted bridge, then start your
-                    coding runtime externally. Registered sessions will appear
-                    here.
-                  </Empty>
-                ) : (
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Session / role</th>
-                          <th>Repository</th>
-                          <th>Stage</th>
-                          <th>Authority</th>
-                          <th>Status</th>
-                          <th>Control</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {state.sessions.map((s) => (
-                          <tr key={s.session}>
-                            <td>
-                              <strong>{s.runtimeSession}</strong>
-                              <small>
-                                {s.role} · {short(s.session)}
-                              </small>
-                            </td>
-                            <td>
-                              {state.repositories
-                                .find((r) => r.id === s.repository)
-                                ?.path.split("/")
-                                .pop() ?? short(s.repository)}
-                            </td>
-                            <td>{s.stage}</td>
-                            <td>
-                              <Badge value={s.enforcement} />
-                            </td>
-                            <td>
-                              <Badge value={s.status} />
-                            </td>
-                            <td>
-                              {s.status !== "terminated" && (
-                                <button
-                                  className="text-button danger"
-                                  disabled={busy}
-                                  onClick={() =>
-                                    void action(
-                                      "sessions/revoke",
-                                      { session: s.session },
-                                      "Authority revoked. The session is paused.",
-                                    )
-                                  }
-                                >
-                                  Revoke
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+              <Tasks
+                tasks={state.tasks}
+                repositories={state.repositories}
+                inspect={(id) => void inspect(id)}
+                review={() => setPage("Reviews")}
+                diagnostics={() => setPage("Audit")}
+              />
+              <details className="setup-controls">
+                <summary>Repository setup & runtime details</summary>
+                {unverified.length > 0 && (
+                  <div className="warning">
+                    <strong>
+                      {unverified.length} active session
+                      {unverified.length === 1 ? " is" : "s are"} unverified.
+                    </strong>{" "}
+                    Protected operations remain blocked until runtime
+                    containment is verified.
                   </div>
                 )}
-              </section>
-              <div className="two-column">
                 <section>
                   <div className="section-heading">
-                    <h2>Repositories</h2>
+                    <h2>Sessions</h2>
                     <span className="fine">
-                      {state.repositories.length} enrolled
+                      Externally started · engine governed
                     </span>
                   </div>
-                  <form
-                    className="inline-form"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      void action(
-                        "repositories",
-                        { path: repoPath },
-                        "Repository enrolled.",
-                      ).then(() => setRepoPath(""));
-                    }}
-                  >
-                    <label className="sr-only" htmlFor="repo-path">
-                      Absolute repository path
-                    </label>
-                    <input
-                      id="repo-path"
-                      placeholder="/absolute/path/to/repository"
-                      value={repoPath}
-                      onChange={(e) => setRepoPath(e.target.value)}
-                      required
-                    />
-                    <button className="primary" disabled={busy}>
-                      Enroll
-                    </button>
-                  </form>
-                  {state.repositories.map((r) => (
-                    <div key={r.id} className="list-row">
-                      <div>
-                        <strong>{r.path.split("/").pop()}</strong>
-                        <small>{r.path}</small>
-                      </div>
+                  {!state.sessions.length ? (
+                    <Empty title="Ready for your first session">
+                      Enroll a repository, pair a trusted bridge, then start
+                      your coding runtime externally. Registered sessions will
+                      appear here.
+                    </Empty>
+                  ) : (
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Session / role</th>
+                            <th>Repository</th>
+                            <th>Stage</th>
+                            <th>Authority</th>
+                            <th>Status</th>
+                            <th>Control</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {state.sessions.map((s) => (
+                            <tr key={s.session}>
+                              <td>
+                                <strong>{s.runtimeSession}</strong>
+                                <small>
+                                  {s.role} · {short(s.session)}
+                                </small>
+                              </td>
+                              <td>
+                                {state.repositories
+                                  .find((r) => r.id === s.repository)
+                                  ?.path.split("/")
+                                  .pop() ?? short(s.repository)}
+                              </td>
+                              <td>{s.stage}</td>
+                              <td>
+                                <Badge value={s.enforcement} />
+                              </td>
+                              <td>
+                                <Badge value={s.status} />
+                              </td>
+                              <td>
+                                {s.status !== "terminated" && (
+                                  <button
+                                    className="text-button danger"
+                                    disabled={busy}
+                                    onClick={() =>
+                                      void action(
+                                        "sessions/revoke",
+                                        { session: s.session },
+                                        "Authority revoked. The session is paused.",
+                                      )
+                                    }
+                                  >
+                                    Revoke
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </section>
+                <div className="two-column">
+                  <section>
+                    <div className="section-heading">
+                      <h2>Repositories</h2>
                       <span className="fine">
-                        {r.caseSensitive
-                          ? "Case sensitive"
-                          : "Case insensitive"}
+                        {state.repositories.length} enrolled
                       </span>
                     </div>
-                  ))}
-                </section>
-                <section>
-                  <div className="section-heading">
-                    <h2>Enforcement readiness</h2>
-                  </div>
-                  <div className="list-row">
-                    <span>Runtime certificates</span>
-                    <Badge
-                      value={
-                        state.certificates.length ? "available" : "unverified"
-                      }
-                    />
-                  </div>
-                  <div className="list-row">
-                    <span>Command workers</span>
-                    <Badge
-                      value={
-                        state.workerConfigured ? "configured" : "unconfigured"
-                      }
-                    />
-                  </div>
-                  <div className="list-row">
-                    <span>Root session control</span>
-                    <span className="fine">External runtime</span>
-                  </div>
-                  <p className="fine readiness-note">
-                    Enforcement status is granted after verified runtime
-                    attachment. The controls interface never launches root
-                    sessions.
-                  </p>
-                </section>
-              </div>
+                    <form
+                      className="inline-form"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void action(
+                          "repositories",
+                          { path: repoPath },
+                          "Repository enrolled.",
+                        ).then(() => setRepoPath(""));
+                      }}
+                    >
+                      <label className="sr-only" htmlFor="repo-path">
+                        Absolute repository path
+                      </label>
+                      <input
+                        id="repo-path"
+                        placeholder="/absolute/path/to/repository"
+                        value={repoPath}
+                        onChange={(e) => setRepoPath(e.target.value)}
+                        required
+                      />
+                      <button className="primary" disabled={busy}>
+                        Enroll
+                      </button>
+                    </form>
+                    {state.repositories.map((r) => (
+                      <div key={r.id} className="list-row">
+                        <div>
+                          <strong>{r.path.split("/").pop()}</strong>
+                          <small>{r.path}</small>
+                        </div>
+                        <span className="fine">
+                          {r.caseSensitive
+                            ? "Case sensitive"
+                            : "Case insensitive"}
+                        </span>
+                      </div>
+                    ))}
+                  </section>
+                  <section>
+                    <div className="section-heading">
+                      <h2>Enforcement readiness</h2>
+                    </div>
+                    <div className="list-row">
+                      <span>Runtime certificates</span>
+                      <Badge
+                        value={
+                          state.certificates.length ? "available" : "unverified"
+                        }
+                      />
+                    </div>
+                    <div className="list-row">
+                      <span>Command workers</span>
+                      <Badge
+                        value={
+                          state.workerConfigured ? "configured" : "unconfigured"
+                        }
+                      />
+                    </div>
+                    <div className="list-row">
+                      <span>Root session control</span>
+                      <span className="fine">External runtime</span>
+                    </div>
+                    <p className="fine readiness-note">
+                      Enforcement status is granted after verified runtime
+                      attachment. The controls interface never launches root
+                      sessions.
+                    </p>
+                  </section>
+                </div>
+              </details>
             </>
           )}
           {page === "Policy" && (
@@ -1157,62 +1155,184 @@ function App() {
         </div>
       </main>
       {artifact && (
-        <div className="modal-backdrop" onClick={() => setArtifact(undefined)}>
-          <section
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Artifact inspection"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="section-heading">
-              <h2>{artifact.kind}</h2>
-              <button
-                autoFocus
-                className="secondary"
-                onClick={() => setArtifact(undefined)}
-              >
-                Close
-              </button>
-            </div>
+        <EvidenceDialog onClose={() => setArtifact(undefined)}>
+          <div className="section-heading">
+            <h2>
+              {artifact.kind === "execution"
+                ? "Command output"
+                : artifact.kind === "change-set"
+                  ? "Proposed action"
+                  : pretty(artifact.kind)}
+            </h2>
+            <button
+              className="secondary"
+              onClick={() => setArtifact(undefined)}
+            >
+              Close
+            </button>
+          </div>
+          {artifact.kind === "change-set" ? (
+            <ChangePreview content={artifact.content} />
+          ) : artifact.kind === "execution" ? (
+            <ExecutionPreview content={artifact.content} />
+          ) : (
+            <pre>{artifact.content}</pre>
+          )}
+          <details className="artifact-details">
+            <summary>Evidence details</summary>
             <p className="mono">{artifact.hash}</p>
             <Badge value={artifact.trust} />
-            <pre>{artifact.content}</pre>
             <p className="fine">
               {artifact.dependencies.length} dependencies ·{" "}
               {artifact.sources.length} sources
             </p>
-            {artifact.kind === "change-set" && (
-              <button
-                className="primary"
-                disabled={busy || !artifact.valid}
-                onClick={() => {
-                  try {
-                    const proposed = JSON.parse(artifact.content);
-                    void action(
-                      "actions/approve",
-                      {
-                        root: artifact.root,
-                        tool: proposed.tool,
-                        args: proposed.args,
-                        dependencies: [artifact.id],
-                      },
-                      "Exact change approved.",
-                    ).then(() => setArtifact(undefined));
-                  } catch {
-                    setError("This artifact does not contain a valid change.");
-                  }
-                }}
-              >
-                Approve exact change
-              </button>
-            )}
-          </section>
-        </div>
+          </details>
+          {artifact.kind === "change-set" && (
+            <button
+              className="primary"
+              disabled={
+                busy ||
+                !artifact.valid ||
+                !state.tasks.some((task) =>
+                  task.proposals.some(
+                    (p) =>
+                      task.status === "active" &&
+                      p.id === artifact.id &&
+                      p.reviewed &&
+                      !p.approved &&
+                      !p.applied,
+                  ),
+                )
+              }
+              onClick={() => {
+                try {
+                  const proposed = JSON.parse(artifact.content);
+                  void action(
+                    "actions/approve",
+                    {
+                      root: artifact.root,
+                      tool: proposed.tool,
+                      args: proposed.args,
+                      dependencies: [artifact.id],
+                    },
+                    "Exact change approved.",
+                  ).then(() => setArtifact(undefined));
+                } catch {
+                  setError("This artifact does not contain a valid change.");
+                }
+              }}
+            >
+              Approve exact change
+            </button>
+          )}
+        </EvidenceDialog>
       )}
     </div>
   );
 }
+function EvidenceDialog({
+  children,
+  onClose,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current!;
+    const previous = document.activeElement;
+    dialog.showModal();
+    return () => {
+      dialog.close();
+      if (previous instanceof HTMLElement && previous.isConnected)
+        previous.focus();
+    };
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      className="modal"
+      aria-label="Artifact inspection"
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+    >
+      {children}
+    </dialog>
+  );
+}
+
+function ExecutionPreview({ content }: { content: string }) {
+  try {
+    const result = JSON.parse(content);
+    if (typeof result.output === "string" && Number.isInteger(result.exitCode))
+      return (
+        <div>
+          <p>
+            {result.exitCode === 0
+              ? "Command passed"
+              : `Command failed · exit ${result.exitCode}`}
+          </p>
+          <pre>{result.output || "The command produced no output."}</pre>
+          {result.truncated && <p>Output was truncated.</p>}
+        </div>
+      );
+  } catch {
+    /* Preserve unreadable evidence for inspection. */
+  }
+  return <pre>{content}</pre>;
+}
+function ChangePreview({ content }: { content: string }) {
+  try {
+    const change = JSON.parse(content);
+    if (
+      change.tool === "change" &&
+      typeof change.args?.path === "string" &&
+      typeof change.args?.content === "string"
+    )
+      return (
+        <div className="change-preview">
+          <h3>{change.args.path}</h3>
+          <p>Proposed file content</p>
+          <pre>{change.args.content}</pre>
+          <p className="fine">
+            The engine checks the reviewed base version before applying this
+            change.
+          </p>
+          <details>
+            <summary>Exact proposal details</summary>
+            <pre>{content}</pre>
+          </details>
+        </div>
+      );
+    if (
+      change.tool === "execute" &&
+      typeof change.args?.executable === "string" &&
+      typeof change.args?.cwd === "string" &&
+      Array.isArray(change.args?.args) &&
+      change.args.args.every((arg: unknown) => typeof arg === "string")
+    )
+      return (
+        <div className="change-preview">
+          <h3>Run an approved command</h3>
+          <pre>{[change.args.executable, ...change.args.args].join(" ")}</pre>
+          <p>Working directory: {change.args.cwd}</p>
+          <p className="fine">
+            Runs against the reviewed source snapshot in an isolated worker.
+          </p>
+          <details>
+            <summary>Exact arguments, environment & snapshot</summary>
+            <pre>{content}</pre>
+          </details>
+        </div>
+      );
+  } catch {
+    /* Malformed evidence remains visible without becoming a command. */
+  }
+  return <pre>{content}</pre>;
+}
+
 function Reconcile({
   operation,
   action,

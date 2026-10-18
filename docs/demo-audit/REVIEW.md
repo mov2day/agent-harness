@@ -70,3 +70,26 @@ The captured session table has poor readability at the current panel width. Smal
 ## Recommended next milestone
 
 Deliver one honest, repeatable OpenCode demonstration from task entry through reviewed edit, executed test and blocked action. Build its task-centered summary using existing engine records. Complete and preserve the current evaluator work separately; do not expand its UI before the main journey is convincing. Retain the full specification as the release backlog.
+
+## Implemented follow-up — 18 October 2026
+
+The default screen now shows task goals, stage progress, recorded file changes, command results and blocked requests. Tasks and Reviews are primary navigation; policy, context, learning and audit remain under Settings & diagnostics. Repository setup, agent identifiers and technical evidence are disclosed on demand. Command output is readable text in a keyboard-accessible dialog, with focus restored on close.
+
+![Task-focused interface](task-focused.png)
+
+The repeatable OpenCode integration now supplies this view with real broker edits and isolated execution: an invoice fix, three passing Python tests and a rejected test-file deletion. Provider choices, owner decisions and certificates remain scripted fixtures, explicitly identified in the preview. This verifies mechanics, not autonomous model quality or release certification. A presenter-controlled pause at review remains the next demo improvement.
+
+Verification: 126 tests passed on macOS and in the Linux test container; the final UI build passed. Browser checks covered output inspection, Escape/focus restoration and a 390px viewport without horizontal overflow. The live workflow completed 68 provider requests, fourteen assignments and five stages; seven runtime containers and one worker were removed.
+
+### Repeat the disposable preview
+
+Build the web bundle with `npm run build`, then run the fixture directly so its preview address is printed without test-runner buffering:
+
+```sh
+DOCKER_CONTEXT=colima-agent-harness \
+HARNESS_TEST_WORKER_IMAGE=<built-worker-image-id> \
+HARNESS_DEMO_PREVIEW=1 \
+node --import tsx conformance/live/specialists-opencode.test.ts
+```
+
+Use the printed local address and disposable credential. Ctrl+C ends the preview and removes its temporary repository and state. This requires the pinned OpenCode runtime and worker image described in the runtime documentation.

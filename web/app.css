@@ -296,6 +296,147 @@ nav button.selected {
   font-size: 10px;
   font-weight: 700;
 }
+.nav-advanced {
+  margin-top: 22px;
+  border-top: 1px solid #424d3c;
+  padding-top: 18px;
+}
+.nav-advanced summary {
+  padding: 10px 8px;
+  color: #c2ccba;
+  font-size: 12px;
+}
+.nav-advanced button {
+  width: 100%;
+  margin-top: 6px;
+}
+.setup-controls {
+  margin-top: 30px;
+}
+.setup-controls > summary {
+  padding: 20px 0;
+  font-weight: 600;
+}
+.setup-controls table {
+  min-width: 650px;
+}
+.task-empty {
+  padding: 30px;
+}
+.task-empty p {
+  margin-top: 12px;
+  max-width: 650px;
+}
+.task-heading {
+  padding: 26px;
+}
+.task-heading h2 {
+  font-size: 24px;
+  line-height: 1.35;
+  max-width: 850px;
+  overflow-wrap: anywhere;
+}
+.task-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.task-stages {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0 26px 24px;
+  margin: 0;
+}
+.task-stages li {
+  border-top: 3px solid var(--line);
+  padding-top: 10px;
+  font-size: 12px;
+}
+.task-stages li.passed {
+  border-color: #668740;
+}
+.task-stages li.current {
+  border-color: #242923;
+  font-weight: 700;
+}
+.task-stages small {
+  font-size: 10px;
+}
+.task-attention {
+  margin: 0 26px 24px;
+  padding: 18px;
+  background: #fcf5df;
+  border-left: 3px solid #ac8729;
+  font-size: 14px;
+}
+.task-attention p {
+  margin: 8px 0 14px;
+}
+.task-decisions,
+.task-work,
+.task-results {
+  padding: 22px 26px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+.task-work p {
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+}
+.task-card h3 {
+  font-size: 14px;
+}
+.task-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 17px 0;
+  border-bottom: 1px solid #e8ebe3;
+  font-size: 13px;
+}
+.task-line:last-child {
+  border-bottom: 0;
+}
+.task-line > div {
+  min-width: 0;
+}
+.task-line button {
+  flex-shrink: 0;
+}
+.task-path {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+.task-protection {
+  padding-top: 16px;
+}
+.task-protection p {
+  margin-top: 12px;
+}
+.task-agent-details {
+  border-top: 1px solid var(--line);
+  padding: 18px 26px;
+  font-size: 13px;
+}
+.task-agent-details li {
+  margin: 8px 0;
+}
+.change-preview {
+  margin: 20px 0;
+}
+.change-preview h3 {
+  overflow-wrap: anywhere;
+}
+.change-preview p,
+.change-preview details {
+  margin-top: 12px;
+}
 .sidebar-bottom {
   margin-top: auto;
   padding: 24px 12px 0;
@@ -722,17 +863,13 @@ td small {
   background: #eaf1df;
   color: #3f612a;
 }
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
+.modal::backdrop {
   background: #151c18a6;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 25px;
-  z-index: 10;
 }
 .modal {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin: auto;
   width: min(850px, 100%);
   max-height: 90vh;
   overflow: auto;
@@ -831,9 +968,45 @@ footer {
   }
   nav {
     flex-direction: row;
-    overflow-x: auto;
+    flex-wrap: wrap;
     margin-top: 20px;
     gap: 4px;
+  }
+  .nav-advanced {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    flex-basis: 100%;
+  }
+  .nav-advanced button {
+    width: auto;
+    display: inline-flex;
+  }
+  .nav-advanced summary {
+    padding: 10px 14px;
+  }
+  .task-heading,
+  .task-decisions,
+  .task-work,
+  .task-results,
+  .task-agent-details {
+    padding: 20px;
+  }
+  .task-heading h2 {
+    font-size: 21px;
+  }
+  .task-stages {
+    padding: 0 20px 20px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px 10px;
+  }
+  .task-line {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .task-attention {
+    margin: 0 20px 20px;
   }
   nav button {
     padding: 10px 14px;

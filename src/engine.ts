@@ -23,6 +23,7 @@ import { Compaction } from "./compaction.js";
 import { ContextWindow } from "./context-window.js";
 import { Learning } from "./learning.js";
 import { Evaluations } from "./evaluations.js";
+import { taskViews } from "./task-view.js";
 import { ModelChannel } from "./model-channel.js";
 import { Runtimes, type RuntimeLaunch } from "./runtimes.js";
 import { Specialists, type SpecialistTask } from "./specialists.js";
@@ -417,6 +418,7 @@ export class Engine {
         ? { healthy: false, failure: this.store.fault }
         : { healthy: true },
       repositories,
+      tasks: taskViews(this.store),
       sessions: this.store.list<Session>("session"),
       runtimes: this.store.list<RuntimeLaunch>("runtime-launch"),
       specialistTasks: this.store

@@ -37,10 +37,11 @@ import type { RuntimeLaunch } from "../../src/runtimes.js";
 import type { Artifact, StageAttempt } from "../../src/workflow.js";
 import type { Operation } from "../../src/operations.js";
 import type { SpecialistTask } from "../../src/specialists.js";
+const preview = process.env.HARNESS_DEMO_PREVIEW === "1";
 
 test(
   "live OpenCode specialists: reviewed invoice fix, isolated test execution, denied deletion, all stages and durable release",
-  { timeout: 300_000 },
+  { timeout: preview ? 3_600_000 : 300_000 },
   async (t) => {
     const image = execFileSync(
       "docker",
@@ -72,7 +73,21 @@ test(
       sourceHash: "live-specialists-fixture-only",
       workerImage,
     });
-    const server = createEngineServer(engine, "fixture-owner", resolve("web"));
+    const server = createEngineServer(
+      engine,
+      "fixture-owner",
+      resolve(preview ? "dist/web" : "web"),
+    );
+    if (preview) {
+      const state = engine.state.bind(engine);
+      Object.defineProperty(engine, "state", {
+        value: () => ({
+          ...state(),
+          previewNotice:
+            "Scripted demo: file changes and test execution are real. Agent choices, owner approvals and runtime certificates are test fixtures.",
+        }),
+      });
+    }
     let runtime: ExternalOpenCode | undefined;
     try {
       execFileSync("git", ["init", "-q", join(dir, "repo")]);
@@ -686,6 +701,17 @@ test(
       assert.equal(result.exitCode, 0, result.output);
       assert.match(result.output, /Ran 3 tests/);
       assert.match(result.output, /OK/);
+      const taskView = engine
+        .state()
+        .tasks.find((task) => task.id === ready.engineSession)!;
+      assert.equal(
+        taskView.title,
+        "Fix invoice totals, preserve tests, and verify the reviewed change",
+      );
+      assert.equal(taskView.changes.length, 1);
+      assert.equal(taskView.changes[0]!.status, "completed");
+      assert.equal(taskView.runs[0]!.exitCode, 0);
+      assert.ok(taskView.blocked.some((d) => d.rule === "deletion_disabled"));
       assert.match(JSON.stringify(requests), /deletion_disabled/);
       const worker = effects.find((op) => op.tool === "execute")!.worker!;
       assert.ok(worker.admitted);
@@ -707,6 +733,20 @@ test(
       t.diagnostic(
         `${requests.length} model requests including five Reviewer checkpoints; fourteen completed assignments; reviewed file edit; three executed tests; denied deletion; five passed stages; seven runtime containers and one worker removed`,
       );
+      if (preview) {
+        process.stdout.write(
+          `Demo preview: ${origin}\nDisposable web credential: fixture-owner\nPress Ctrl+C to close and remove the demo data.\n`,
+        );
+        await new Promise<void>((done) => {
+          const stop = () => {
+            process.off("SIGINT", stop);
+            process.off("SIGTERM", stop);
+            done();
+          };
+          process.once("SIGINT", stop);
+          process.once("SIGTERM", stop);
+        });
+      }
     } finally {
       await runtime?.stop().catch(() => {});
       server.closeAllConnections();
