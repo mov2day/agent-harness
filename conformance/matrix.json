@@ -31,6 +31,14 @@
       "file": "test/workflow.test.ts",
       "title": "artifacts: guessed identifiers"
     },
+    "capGate": {
+      "file": "test/conformance-gaps.test.ts",
+      "title": "capability gate: forged, revoked"
+    },
+    "cmdSpell": {
+      "file": "test/conformance-gaps.test.ts",
+      "title": "command spelling: path aliases"
+    },
     "compTools": {
       "file": "test/context-window.test.ts",
       "title": "automatic compaction: requested compaction waits"
@@ -103,6 +111,10 @@
       "file": "test/models.test.ts",
       "title": "model policy: publication rejects"
     },
+    "netSpell": {
+      "file": "test/conformance-gaps.test.ts",
+      "title": "network spelling: only exact"
+    },
     "nonce": {
       "file": "test/identity.test.ts",
       "title": "registration: atomic nonce race"
@@ -110,6 +122,10 @@
     "ocadapt": {
       "file": "test/containment.test.ts",
       "title": "OpenCode adapter: native tools, aliases, plugins"
+    },
+    "pathSpell": {
+      "file": "test/conformance-gaps.test.ts",
+      "title": "path spelling: traversal"
     },
     "polCeiling": {
       "file": "test/identity.test.ts",
@@ -243,21 +259,23 @@
       "status": "unmapped"
     },
     "paths/registration": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["capGate"]
     },
     "paths/configuration": {
       "status": "test",
       "tests": ["polOverlap"]
     },
     "paths/cli_overrides": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["pathSpell"]
     },
     "paths/plugins": {
       "status": "unmapped"
     },
     "paths/aliases": {
       "status": "test",
-      "tests": ["fscase"]
+      "tests": ["fscase", "pathSpell"]
     },
     "paths/delegation": {
       "status": "test",
@@ -274,7 +292,8 @@
       "status": "unmapped"
     },
     "commands/registration": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["capGate"]
     },
     "commands/configuration": {
       "status": "test",
@@ -282,7 +301,7 @@
     },
     "commands/cli_overrides": {
       "status": "test",
-      "tests": ["enfauth"]
+      "tests": ["enfauth", "cmdSpell"]
     },
     "commands/plugins": {
       "status": "test",
@@ -290,7 +309,7 @@
     },
     "commands/aliases": {
       "status": "test",
-      "tests": ["ocadapt"]
+      "tests": ["ocadapt", "cmdSpell"]
     },
     "commands/delegation": {
       "status": "unmapped"
@@ -306,11 +325,12 @@
       "status": "unmapped"
     },
     "network/registration": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["capGate"]
     },
     "network/configuration": {
       "status": "test",
-      "tests": ["gw"]
+      "tests": ["gw", "netSpell"]
     },
     "network/cli_overrides": {
       "status": "test",
@@ -321,7 +341,8 @@
       "tests": ["contain"]
     },
     "network/aliases": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["netSpell"]
     },
     "network/delegation": {
       "status": "unmapped"
