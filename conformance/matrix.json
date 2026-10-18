@@ -51,6 +51,22 @@
       "file": "test/containment.test.ts",
       "title": "containment: host sockets"
     },
+    "delAllow": {
+      "file": "test/conformance-delegation.test.ts",
+      "title": "delegation: children are bound"
+    },
+    "delPolicy": {
+      "file": "test/conformance-delegation.test.ts",
+      "title": "delegation: tightening policy"
+    },
+    "delSkills": {
+      "file": "test/conformance-delegation.test.ts",
+      "title": "delegation: a child keeps"
+    },
+    "delTools": {
+      "file": "test/conformance-delegation.test.ts",
+      "title": "delegation: a child holds only"
+    },
     "enfauth": {
       "file": "test/enforcement.test.ts",
       "title": "authority: reviewed arguments, roles, paths, stages"
@@ -143,6 +159,22 @@
       "file": "test/identity.test.ts",
       "title": "policy: concrete overlapping denies"
     },
+    "regPolicy": {
+      "file": "test/conformance-delegation.test.ts",
+      "title": "registration: policy changes void"
+    },
+    "resAdmission": {
+      "file": "test/conformance-research.test.ts",
+      "title": "research evidence cannot raise"
+    },
+    "resEvidence": {
+      "file": "test/conformance-research.test.ts",
+      "title": "research evidence is untrusted"
+    },
+    "resHttp": {
+      "file": "test/conformance-research.test.ts",
+      "title": "HTTP: credentials an agent can hold"
+    },
     "reviews": {
       "file": "test/workflow.test.ts",
       "title": "reviews: revision zero"
@@ -190,7 +222,8 @@
       "tests": ["admission", "spectask"]
     },
     "identity/research": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["resEvidence"]
     },
     "identity/compaction": {
       "status": "test",
@@ -257,7 +290,8 @@
       "tests": ["ocadapt"]
     },
     "tools/delegation": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["delTools"]
     },
     "tools/research": {
       "status": "test",
@@ -327,7 +361,8 @@
       "tests": ["ocadapt", "cmdSpell"]
     },
     "commands/delegation": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["delAllow"]
     },
     "commands/research": {
       "status": "test",
@@ -362,7 +397,8 @@
       "tests": ["netSpell"]
     },
     "network/delegation": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["delAllow"]
     },
     "network/research": {
       "status": "test",
@@ -398,7 +434,8 @@
       "tests": ["admission", "spectask", "specreuse"]
     },
     "admission/research": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["resAdmission"]
     },
     "admission/compaction": {
       "status": "test",
@@ -409,7 +446,8 @@
       "tests": ["learnAuth"]
     },
     "reviews/registration": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["regPolicy"]
     },
     "reviews/configuration": {
       "status": "test",
@@ -429,7 +467,8 @@
       "tests": ["gates"]
     },
     "reviews/research": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["resAdmission", "resHttp"]
     },
     "reviews/compaction": {
       "status": "test",
@@ -457,10 +496,12 @@
       "status": "unmapped"
     },
     "skills/delegation": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["delSkills"]
     },
     "skills/research": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["resEvidence", "resHttp"]
     },
     "skills/compaction": {
       "status": "test",
@@ -471,7 +512,8 @@
       "tests": ["learnProm", "matrb", "matint", "learnGlob"]
     },
     "policy/registration": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["regPolicy"]
     },
     "policy/configuration": {
       "status": "test",
@@ -487,10 +529,12 @@
       "status": "unmapped"
     },
     "policy/delegation": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["delPolicy"]
     },
     "policy/research": {
-      "status": "unmapped"
+      "status": "test",
+      "tests": ["resEvidence", "resHttp"]
     },
     "policy/compaction": {
       "status": "test",
