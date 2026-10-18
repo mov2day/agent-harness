@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.17
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run verify
+      - run: npm run conformance:matrix
+
+  # Release gate: every matrix cell needs a passing test or an approved N/A.
+  # Run manually until the unmapped cells are closed.
+  release-matrix:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.17
+          cache: npm
+      - run: npm ci
+      - run: npm run conformance:matrix -- --strict

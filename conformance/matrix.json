@@ -1,0 +1,459 @@
+{
+  "rows": [
+    "identity",
+    "roles",
+    "tools",
+    "paths",
+    "commands",
+    "network",
+    "admission",
+    "reviews",
+    "skills",
+    "policy"
+  ],
+  "columns": [
+    "registration",
+    "configuration",
+    "cli_overrides",
+    "plugins",
+    "aliases",
+    "delegation",
+    "research",
+    "compaction",
+    "learning"
+  ],
+  "tests": {
+    "admission": {
+      "file": "test/workflow.test.ts",
+      "title": "admission: concurrent limit"
+    },
+    "artifacts": {
+      "file": "test/workflow.test.ts",
+      "title": "artifacts: guessed identifiers"
+    },
+    "compTools": {
+      "file": "test/context-window.test.ts",
+      "title": "automatic compaction: requested compaction waits"
+    },
+    "contain": {
+      "file": "test/containment.test.ts",
+      "title": "containment: host sockets"
+    },
+    "enfauth": {
+      "file": "test/enforcement.test.ts",
+      "title": "authority: reviewed arguments, roles, paths, stages"
+    },
+    "expiry": {
+      "file": "test/identity.test.ts",
+      "title": "registration: expiry boundary"
+    },
+    "fscase": {
+      "file": "test/filesystem-races.test.ts",
+      "title": "case behavior"
+    },
+    "gates": {
+      "file": "test/workflow.test.ts",
+      "title": "human gates bind"
+    },
+    "gw": {
+      "file": "test/enforcement.test.ts",
+      "title": "gateway: private, reserved"
+    },
+    "gwred": {
+      "file": "test/gateway.test.ts",
+      "title": "gateway redirects"
+    },
+    "gwtls": {
+      "file": "test/gateway.test.ts",
+      "title": "gateway TLS: pinned destinations"
+    },
+    "httprace": {
+      "file": "test/server.test.ts",
+      "title": "HTTP: live nonce race"
+    },
+    "httpreg": {
+      "file": "test/server.test.ts",
+      "title": "HTTP: browser registration, origin protection"
+    },
+    "learnGlob": {
+      "file": "test/learning.test.ts",
+      "title": "learning: approved global metadata"
+    },
+    "learnProm": {
+      "file": "test/learning.test.ts",
+      "title": "learning: exact baseline, evaluations, human promotion"
+    },
+    "mat": {
+      "file": "test/materials.test.ts",
+      "title": "approved material: exact instructions"
+    },
+    "matint": {
+      "file": "test/materials.test.ts",
+      "title": "approved material integrity"
+    },
+    "matrb": {
+      "file": "test/materials.test.ts",
+      "title": "approved material rollback: restore"
+    },
+    "mchan": {
+      "file": "test/model-channel.test.ts",
+      "title": "model channel: model overrides"
+    },
+    "mdlPol": {
+      "file": "test/models.test.ts",
+      "title": "model policy: publication rejects"
+    },
+    "nonce": {
+      "file": "test/identity.test.ts",
+      "title": "registration: atomic nonce race"
+    },
+    "ocadapt": {
+      "file": "test/containment.test.ts",
+      "title": "OpenCode adapter: native tools, aliases, plugins"
+    },
+    "polCeiling": {
+      "file": "test/identity.test.ts",
+      "title": "policy: field-specific ceiling errors"
+    },
+    "polOverlap": {
+      "file": "test/identity.test.ts",
+      "title": "policy: concrete overlapping denies"
+    },
+    "reviews": {
+      "file": "test/workflow.test.ts",
+      "title": "reviews: revision zero"
+    },
+    "specreuse": {
+      "file": "test/specialists.test.ts",
+      "title": "specialist tasks: retained sessions"
+    },
+    "spectask": {
+      "file": "test/specialists.test.ts",
+      "title": "specialist tasks: admission and explicit"
+    },
+    "spoof": {
+      "file": "test/identity.test.ts",
+      "title": "registration: role, repository, integration and connection spoofing fail"
+    },
+    "unreg": {
+      "file": "test/containment.test.ts",
+      "title": "containment: unregistered and uncertified"
+    }
+  },
+  "cells": {
+    "identity/registration": {
+      "status": "test",
+      "tests": ["nonce", "spoof", "httprace", "expiry"]
+    },
+    "identity/configuration": {
+      "status": "test",
+      "tests": ["httpreg"]
+    },
+    "identity/cli_overrides": {
+      "status": "test",
+      "tests": ["contain"]
+    },
+    "identity/plugins": {
+      "status": "test",
+      "tests": ["ocadapt"]
+    },
+    "identity/aliases": {
+      "status": "test",
+      "tests": ["ocadapt"]
+    },
+    "identity/delegation": {
+      "status": "test",
+      "tests": ["admission", "spectask"]
+    },
+    "identity/research": {
+      "status": "unmapped"
+    },
+    "identity/compaction": {
+      "status": "unmapped"
+    },
+    "identity/learning": {
+      "status": "unmapped"
+    },
+    "roles/registration": {
+      "status": "test",
+      "tests": ["spoof"]
+    },
+    "roles/configuration": {
+      "status": "test",
+      "tests": ["mdlPol"]
+    },
+    "roles/cli_overrides": {
+      "status": "test",
+      "tests": ["mchan"]
+    },
+    "roles/plugins": {
+      "status": "test",
+      "tests": ["ocadapt"]
+    },
+    "roles/aliases": {
+      "status": "test",
+      "tests": ["ocadapt"]
+    },
+    "roles/delegation": {
+      "status": "test",
+      "tests": ["admission", "spectask"]
+    },
+    "roles/research": {
+      "status": "test",
+      "tests": ["enfauth"]
+    },
+    "roles/compaction": {
+      "status": "unmapped"
+    },
+    "roles/learning": {
+      "status": "unmapped"
+    },
+    "tools/registration": {
+      "status": "test",
+      "tests": ["unreg"]
+    },
+    "tools/configuration": {
+      "status": "test",
+      "tests": ["contain"]
+    },
+    "tools/cli_overrides": {
+      "status": "test",
+      "tests": ["ocadapt"]
+    },
+    "tools/plugins": {
+      "status": "test",
+      "tests": ["ocadapt"]
+    },
+    "tools/aliases": {
+      "status": "test",
+      "tests": ["ocadapt"]
+    },
+    "tools/delegation": {
+      "status": "unmapped"
+    },
+    "tools/research": {
+      "status": "test",
+      "tests": ["enfauth"]
+    },
+    "tools/compaction": {
+      "status": "test",
+      "tests": ["compTools"]
+    },
+    "tools/learning": {
+      "status": "unmapped"
+    },
+    "paths/registration": {
+      "status": "unmapped"
+    },
+    "paths/configuration": {
+      "status": "test",
+      "tests": ["polOverlap"]
+    },
+    "paths/cli_overrides": {
+      "status": "unmapped"
+    },
+    "paths/plugins": {
+      "status": "unmapped"
+    },
+    "paths/aliases": {
+      "status": "test",
+      "tests": ["fscase"]
+    },
+    "paths/delegation": {
+      "status": "test",
+      "tests": ["artifacts"]
+    },
+    "paths/research": {
+      "status": "test",
+      "tests": ["enfauth"]
+    },
+    "paths/compaction": {
+      "status": "unmapped"
+    },
+    "paths/learning": {
+      "status": "unmapped"
+    },
+    "commands/registration": {
+      "status": "unmapped"
+    },
+    "commands/configuration": {
+      "status": "test",
+      "tests": ["polOverlap"]
+    },
+    "commands/cli_overrides": {
+      "status": "test",
+      "tests": ["enfauth"]
+    },
+    "commands/plugins": {
+      "status": "test",
+      "tests": ["ocadapt"]
+    },
+    "commands/aliases": {
+      "status": "test",
+      "tests": ["ocadapt"]
+    },
+    "commands/delegation": {
+      "status": "unmapped"
+    },
+    "commands/research": {
+      "status": "test",
+      "tests": ["enfauth"]
+    },
+    "commands/compaction": {
+      "status": "unmapped"
+    },
+    "commands/learning": {
+      "status": "unmapped"
+    },
+    "network/registration": {
+      "status": "unmapped"
+    },
+    "network/configuration": {
+      "status": "test",
+      "tests": ["gw"]
+    },
+    "network/cli_overrides": {
+      "status": "test",
+      "tests": ["mchan"]
+    },
+    "network/plugins": {
+      "status": "test",
+      "tests": ["contain"]
+    },
+    "network/aliases": {
+      "status": "unmapped"
+    },
+    "network/delegation": {
+      "status": "unmapped"
+    },
+    "network/research": {
+      "status": "test",
+      "tests": ["gwtls", "gwred"]
+    },
+    "network/compaction": {
+      "status": "unmapped"
+    },
+    "network/learning": {
+      "status": "unmapped"
+    },
+    "admission/registration": {
+      "status": "test",
+      "tests": ["admission"]
+    },
+    "admission/configuration": {
+      "status": "test",
+      "tests": ["admission"]
+    },
+    "admission/cli_overrides": {
+      "status": "unmapped"
+    },
+    "admission/plugins": {
+      "status": "unmapped"
+    },
+    "admission/aliases": {
+      "status": "unmapped"
+    },
+    "admission/delegation": {
+      "status": "test",
+      "tests": ["admission", "spectask", "specreuse"]
+    },
+    "admission/research": {
+      "status": "unmapped"
+    },
+    "admission/compaction": {
+      "status": "unmapped"
+    },
+    "admission/learning": {
+      "status": "unmapped"
+    },
+    "reviews/registration": {
+      "status": "unmapped"
+    },
+    "reviews/configuration": {
+      "status": "test",
+      "tests": ["reviews"]
+    },
+    "reviews/cli_overrides": {
+      "status": "unmapped"
+    },
+    "reviews/plugins": {
+      "status": "unmapped"
+    },
+    "reviews/aliases": {
+      "status": "unmapped"
+    },
+    "reviews/delegation": {
+      "status": "test",
+      "tests": ["gates"]
+    },
+    "reviews/research": {
+      "status": "unmapped"
+    },
+    "reviews/compaction": {
+      "status": "unmapped"
+    },
+    "reviews/learning": {
+      "status": "test",
+      "tests": ["learnProm"]
+    },
+    "skills/registration": {
+      "status": "test",
+      "tests": ["mat"]
+    },
+    "skills/configuration": {
+      "status": "test",
+      "tests": ["mat"]
+    },
+    "skills/cli_overrides": {
+      "status": "unmapped"
+    },
+    "skills/plugins": {
+      "status": "unmapped"
+    },
+    "skills/aliases": {
+      "status": "unmapped"
+    },
+    "skills/delegation": {
+      "status": "unmapped"
+    },
+    "skills/research": {
+      "status": "unmapped"
+    },
+    "skills/compaction": {
+      "status": "unmapped"
+    },
+    "skills/learning": {
+      "status": "test",
+      "tests": ["learnProm", "matrb", "matint", "learnGlob"]
+    },
+    "policy/registration": {
+      "status": "unmapped"
+    },
+    "policy/configuration": {
+      "status": "test",
+      "tests": ["polCeiling", "polOverlap"]
+    },
+    "policy/cli_overrides": {
+      "status": "unmapped"
+    },
+    "policy/plugins": {
+      "status": "unmapped"
+    },
+    "policy/aliases": {
+      "status": "unmapped"
+    },
+    "policy/delegation": {
+      "status": "unmapped"
+    },
+    "policy/research": {
+      "status": "unmapped"
+    },
+    "policy/compaction": {
+      "status": "unmapped"
+    },
+    "policy/learning": {
+      "status": "test",
+      "tests": ["matrb"]
+    }
+  }
+}
