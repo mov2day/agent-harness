@@ -87,6 +87,28 @@ test("conformance matrix: N/A needs an independent reviewer and goes stale when 
   }
 });
 
+test("conformance matrix: indirect mappings await reviewer confirmation and need a rationale", () => {
+  const w = workspace();
+  try {
+    const pending = checkMatrix(
+      w.matrix({ status: "test", tests: ["a"], needsReview: "indirect" }),
+      w.root,
+    );
+    assert.deepEqual(pending.errors, []);
+    assert.deepEqual(pending.needsReview, ["r/c"]);
+    assert.equal(pending.covered, 0);
+    assert.match(
+      checkMatrix(
+        w.matrix({ status: "test", tests: ["a"], needsReview: " " }),
+        w.root,
+      ).errors.join(),
+      /no rationale/,
+    );
+  } finally {
+    w.cleanup();
+  }
+});
+
 test("conformance matrix: the committed matrix is well formed", () => {
   const root = join(import.meta.dirname, "..");
   const matrix = JSON.parse(
