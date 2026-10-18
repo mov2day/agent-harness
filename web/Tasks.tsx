@@ -100,11 +100,22 @@ export function Tasks({
                     (s) => s.stage === stage && s.state === "passed",
                   ) ||
                   (stage === "complete" && complete);
+                const skipped =
+                  !passed &&
+                  stage !== "complete" &&
+                  !!task.route &&
+                  !task.route.includes(stage as never);
                 return (
                   <li
                     key={stage}
                     className={
-                      passed ? "passed" : stage === task.stage ? "current" : ""
+                      passed
+                        ? "passed"
+                        : skipped
+                          ? "skipped"
+                          : stage === task.stage
+                            ? "current"
+                            : ""
                     }
                     aria-current={stage === task.stage ? "step" : undefined}
                   >
@@ -112,9 +123,11 @@ export function Tasks({
                     <small>
                       {passed
                         ? "Complete"
-                        : stage === task.stage
-                          ? "Current"
-                          : "Upcoming"}
+                        : skipped
+                          ? "Not needed"
+                          : stage === task.stage
+                            ? "Current"
+                            : "Upcoming"}
                     </small>
                   </li>
                 );

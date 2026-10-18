@@ -53,15 +53,17 @@ Never report an invalidated operation as an ordinary success without recording t
 
 ### Policy resolution
 
-Global policy applies to the current user's enrolled repositories. Repository policy may tighten restrictions and replace permitted defaults.
+Global policy supplies the defaults for the current user's enrolled repositories and holds a few limits that no repository can pass. A repository without its own policy follows the defaults. A repository policy may tighten them, and may also be **granted** more than the defaults (a tool, a domain, a command, higher limits, fewer review points, an enabled agent) when the owner explicitly confirms each new grant. A grant applies to that repository only; it never changes the global defaults or another repository.
 
 | Condition | Required behavior |
 |---|---|
-| Repository raises a global ceiling or enables a forbidden capability | Reject publication with field-specific errors; never clamp silently. |
+| Repository asks for more than the global defaults | Refuse publication until the owner confirms each new grant, listing what is new; record the grants. Never granted silently. |
+| Repository allows a globally denied or forbidden entry, drops a global denial or prohibition, or widens file paths beyond global | Reject publication with field-specific errors; confirmation cannot override it. |
 | Invalid UI candidate | Preserve the valid published policy. |
 | Active global policy becomes invalid or unexpectedly missing | Block affected protected operations globally. |
 | Active repository policy becomes invalid or unexpectedly missing | Block that repository's protected operations. |
 | Optional repository policy has never been activated | Apply global policy. |
+| Repository enables a globally disabled agent, widens an agent, or drops a mandatory agent | Reject publication with field-specific errors. |
 | Allow/deny overlap | Evaluate the concrete resource; any applicable denial wins. |
 | Policy becomes more permissive | Require explicit activation; existing approvals do not expand. |
 
@@ -75,12 +77,24 @@ Implement authenticated role identity before resource enforcement.
 
 | Role | Authority |
 |---|---|
-| Conductor | Coordinate stages and request specialists. |
-| Researcher | Obtain external information through the gateway. |
+| Conductor (the **Orchestrator** agent) | Choose a route through the enabled agents, coordinate stages and request specialists. |
+| Researcher | Obtain external information through the gateway. The only role that holds the `research` tool. |
 | Planner | Read approved context and propose plans. |
 | Implementer | Submit and apply reviewed changes through the file broker. |
-| Reviewer | Inspect artifacts and issue findings. |
-| Verifier | Request approved execution and assess results. |
+| Executor | Request approved execution in the isolated worker. |
+| Reviewer | Inspect artifacts and issue findings at configured stages. |
+| Verifier | Check every submitted stage against its assignment; may also execute approved work. |
+
+### Agents
+
+An **agent** is an owner-approved definition bound to exactly one role: id, name, kind, role, description, system prompt, optional model and reasoning, and the tools, skills and MCP servers it may use. A role is the authority ceiling; an agent can narrow it and never widen it.
+
+- **Mandatory agents** `orchestrator`, `verifier` and `reviewer` are present and enabled in every global and repository policy and cannot be removed, disabled or retargeted. Their prompts remain owner-editable.
+- **Default agents** `researcher`, `planner`, `implementer` and `executor` ship enabled and may be disabled.
+- **Custom agents** are added by the owner with their own system prompt and a role; they cannot use the Conductor role.
+- Agent definitions, prompts and allow/deny lists are written only through the authenticated owner interface. Research, task text, artifacts and checkpoints can never create or edit them.
+- Global agents are the catalogue. A repository overrides agents by id, may only disable or narrow tools, may choose its own skills and MCP servers (from its allow lists, which cannot allow a globally denied entry), may change prompt or model, and may add repository-only custom agents. Enabling a globally disabled agent or giving an agent more tools is a grant the owner confirms for that repository.
+- Skills and MCP servers are discovered from global and repository configuration. The owner allows or denies each; unlisted entries are denied and denial wins. A repository cannot allow a globally denied entry or drop a global denial. These lists, like agent tool sets, are authorization policy plus authoritative agent context. Agent-side MCP execution is not brokered by the engine; an MCP server stays unreachable from a contained runtime unless a broker is added.
 
 Admission and delegation checks are atomic. Children inherit restrictions. Skills supply instructions, never permissions.
 
@@ -114,6 +128,8 @@ All agent-requested external information goes through the Researcher and gateway
 
 Validate every redirect, allow at most five, reject prohibited addresses, pin validated destinations at connection time, and verify TLS hostname identity. Return bounded evidence with immutable provenance and trust labels.
 
+Fetched content is reduced to bounded plain text and screened for text addressed to the model before any agent sees it. The owner configures review per policy: none, approval of each address before the fetch, or approval of the cleaned content before the agent receives it (default); trusted domains may skip review. A repository may only strengthen this. Approvals bind the exact URL, task and stored evidence.
+
 Research content cannot create task authority, approve changes, or modify policy. Test harmful instructions that target otherwise allowed operations, including deleting source files and weakening tests.
 
 Workers receive no general network, host mounts, privileged mode, host networking, devices, Docker/containerd sockets, or equivalent host-control endpoints. Approved plugins and hooks still require independent containment of alternate execution paths.
@@ -134,15 +150,17 @@ Repository isolation applies to **all session and storage paths**, independently
 
 ### Reviews
 
-Persist:
+Persist the stages:
 
 `research → plan → implementation → execution → verification → complete`
 
-Each stage produces versioned artifacts and passes its configured review. Support automatic reviews and configurable human gates; require human approval for destructive changes by default.
+The Orchestrator chooses, once per task and before any work, the subset of stages the task needs (in canonical order). Every chosen stage needs an enabled agent that can perform it; unchosen stages are skipped. With no route, every stage runs.
+
+Each stage produces versioned artifacts. After a stage's artifact is submitted, the configured checkpoints run in order: the **Verifier** checks the output against the assignment (by default after every stage), then the **Reviewer** reviews it (by default after plan and implementation), then any configured human gate. Support automatic reviews and configurable human gates; require human approval for destructive changes by default.
 
 Blocking findings prevent advancement. Approvals bind artifact hashes, upstream dependencies, and policy versions. Invalidate dependencies transitively, including diamond graphs, without invalidating unrelated artifacts. Reject cycles.
 
-Revision limit `0` permits the initial review only; `1` permits one corrective revision and re-review. Passing the last permitted revision advances; failing it enters `needs_attention`.
+The owner may also require approval before a stage starts, in addition to the human gate after it; a gate rejection returns the stage for revision with the owner's feedback. Verifier and Reviewer findings share one revision count. Revision limit `0` permits the initial check only; `1` permits one corrective revision and re-review. Passing the last permitted revision advances; failing it enters `needs_attention`.
 
 Validate role-specific model and reasoning settings against runtime capabilities; reject unsupported combinations.
 

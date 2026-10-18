@@ -6,22 +6,41 @@ import type { Candidate, Evaluation } from "../src/learning.js";
 import type { EvaluationJob, EvaluationRun } from "../src/evaluations.js";
 import "./app.css";
 import { Tasks } from "./Tasks.js";
+import { Agents } from "./Agents.js";
+import { ReviewQueue } from "./ReviewQueue.js";
 type State = ReturnType<Engine["state"]> & { previewNotice?: string };
-type Page = "Tasks" | "Policy" | "Reviews" | "Context" | "Learning" | "Audit";
+type Page =
+  "Tasks" | "Agents" | "Policy" | "Reviews" | "Context" | "Learning" | "Audit";
 const pages: Page[] = [
   "Tasks",
+  "Agents",
   "Policy",
   "Reviews",
   "Context",
   "Learning",
   "Audit",
 ];
+// Pages that already open with their own intro paragraph are omitted.
+const lede: Partial<Record<Page, string>> = {
+  Tasks:
+    "Follow each coding task, see what the agents are doing, and decide what needs you.",
+  Policy: "Set what agents may read, change and run in each repository.",
+  Audit: "A record of every protected action and who decided it.",
+};
+const ago = (ms: number) => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 10
+    ? "just now"
+    : s < 60
+      ? `${s} seconds ago`
+      : `${Math.floor(s / 60)} min ago`;
+};
 const short = (s: string) => s.slice(0, 8);
 const pretty = (s: string) => s.replaceAll("_", " ").replaceAll(".", " · ");
 function Badge({ value }: { value: string }) {
   return (
     <span
-      className={`badge ${["enforced", "completed", "passed", "eligible", "active"].includes(value) ? "good" : ["unverified", "paused", "requires_reconciliation", "needs_attention", "rejected"].includes(value) ? "warn" : ""}`}
+      className={`badge ${["enforced", "completed", "passed", "eligible", "active"].includes(value) ? "good" : ["rejected", "failed", "blocked"].includes(value) ? "bad" : ["unverified", "paused", "requires_reconciliation", "needs_attention"].includes(value) ? "warn" : ""}`}
     >
       {pretty(value)}
     </span>
@@ -36,9 +55,6 @@ function Empty({
 }) {
   return (
     <div className="empty">
-      <span className="empty-mark" aria-hidden="true">
-        ◇
-      </span>
       <h3>{title}</h3>
       <p>{children}</p>
     </div>
@@ -357,6 +373,9 @@ function App() {
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
+    [online, setOnline] = useState(true),
+    [updatedAt, setUpdatedAt] = useState(0),
+    [now, setNow] = useState(Date.now()),
     [artifact, setArtifact] = useState<any>(),
     [repoPath, setRepoPath] = useState("");
   const request = async (path: string, data?: unknown, key = token) => {
@@ -377,17 +396,30 @@ function App() {
       );
     return result;
   };
-  const refresh = async (key = token) =>
+  const refresh = async (key = token) => {
     setState(await request("state", undefined, key));
+    setOnline(true);
+    setUpdatedAt(Date.now());
+  };
   useEffect(() => {
     if (!token) return;
     void refresh().catch((e) => setError(e.message));
+    // Background polls report connection loss in the header, not as an error banner.
     const interval = setInterval(
-      () => void refresh().catch((e) => setError(e.message)),
+      () => void refresh().catch(() => setOnline(false)),
       10000,
     );
-    return () => clearInterval(interval);
+    const clock = setInterval(() => setNow(Date.now()), 5000);
+    return () => {
+      clearInterval(interval);
+      clearInterval(clock);
+    };
   }, [token]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(""), 5000);
+    return () => clearTimeout(timer);
+  }, [notice]);
   const action = async (path: string, data: unknown, message: string) => {
     setBusy(true);
     setError("");
@@ -428,25 +460,20 @@ function App() {
       <div className="login">
         <div className="login-story">
           <div className="brand">
-            <span className="brand-mark">h</span> agent-harness
+            <span className="brand-mark" aria-hidden="true" /> agent-harness
           </div>
           <div>
-            <p className="eyebrow">LOCAL AUTHORITY / 01</p>
-            <h1>
-              A clear view.
-              <br />A controlled agent.
-            </h1>
+            <h1>Control tower for your coding agents</h1>
             <p>
-              Policy, reviews, and evidence for your coding sessions. One place
-              to see what is allowed and what needs your attention.
+              See what each agent is allowed to do, approve the steps that need
+              your decision, and keep a record of what happened.
             </p>
           </div>
           <span className="fine">
-            Your repositories. Your machine. Your controls.
+            Runs on your machine. Nothing leaves your repositories.
           </span>
         </div>
         <main className="login-form">
-          <p className="eyebrow">ENGINE CONTROLS</p>
           <h2>Connect to your engine</h2>
           <p>
             Enter the web credential created during local setup. It is separate
@@ -463,7 +490,7 @@ function App() {
               required
             />
             <button disabled={busy} className="primary">
-              {busy ? "Connecting…" : "Open controls"} <span>↗</span>
+              {busy ? "Connecting…" : "Open controls"}
             </button>
           </form>
           {error && (
@@ -486,19 +513,30 @@ function App() {
       ["paused", "needs_attention"].includes(s.status),
     ),
     unverified = active.filter((s) => s.enforcement !== "enforced"),
-    gates = (state.stages as any[]).filter((s) => s.state === "human_gate");
+    gates = [
+      ...(state.stages as any[]).filter((s) => s.state === "human_gate"),
+      ...(state.stageStarts as any[]).filter(
+        (g) =>
+          g.state === "pending" &&
+          state.sessions.some(
+            (s) =>
+              s.session === g.root &&
+              s.status === "active" &&
+              s.stage === g.stage,
+          ),
+      ),
+      ...state.externalReviews.filter((r) => r.state === "pending"),
+    ];
   return (
     <div className="shell">
       <aside>
         <div className="brand">
-          <span className="brand-mark">h</span>
-          <span>
-            agent-harness<small>ENGINE CONTROLS</small>
-          </span>
+          <span className="brand-mark" aria-hidden="true" />
+          <span>agent-harness</span>
         </div>
-        <div className="workspace-label">WORKSPACE</div>
+        <div className="workspace-label">Workspace</div>
         <nav aria-label="Main navigation">
-          {(["Tasks", "Reviews"] as Page[]).map((p) => (
+          {(["Tasks", "Agents", "Reviews"] as Page[]).map((p) => (
             <button
               key={p}
               className={page === p ? "selected" : ""}
@@ -516,11 +554,11 @@ function App() {
           ))}
           <details
             className="nav-advanced"
-            open={!["Tasks", "Reviews"].includes(page) || undefined}
+            open={!["Tasks", "Agents", "Reviews"].includes(page) || undefined}
           >
             <summary>Settings & diagnostics</summary>
             {pages
-              .filter((p) => !["Tasks", "Reviews"].includes(p))
+              .filter((p) => !["Tasks", "Agents", "Reviews"].includes(p))
               .map((p) => (
                 <button
                   key={p}
@@ -537,7 +575,11 @@ function App() {
           </details>
         </nav>
         <div className="sidebar-bottom">
-          <span className="online-dot" /> Local engine
+          <span
+            className={`status-dot ${online ? "" : "offline"}`}
+            aria-hidden="true"
+          />
+          {online ? "Local engine" : "Engine unreachable"}
           <small>
             v{state.version} · {state.platform}
           </small>
@@ -548,49 +590,64 @@ function App() {
               setState(undefined);
             }}
           >
-            Disconnect ↗
+            Disconnect
           </button>
         </div>
       </aside>
       <main className="main">
+        {busy && (
+          <div className="progress" role="progressbar" aria-label="Working" />
+        )}
         <header>
           <span>
-            Workspace <span className="separator">/</span> {page}
+            Workspace <span className="separator">/</span>
+            <strong>{page}</strong>
           </span>
-          <span className="header-right">
-            LOCAL ONLY <span className="online-dot" />
+          <span className="header-right" role="status">
+            <span
+              className={`status-dot ${online ? "" : "offline"}`}
+              aria-hidden="true"
+            />
+            {!online
+              ? "Connection lost. Retrying every 10 seconds."
+              : updatedAt
+                ? `Updated ${ago(now - updatedAt)}`
+                : "Connected"}
           </span>
         </header>
         <div className="page">
           <div className="page-heading">
             <div>
-              <p className="eyebrow">
-                {page === "Tasks" ? "YOUR CODING WORK" : "ENGINE CONTROLS"}
-              </p>
               <h1>
                 {page === "Tasks"
                   ? "Your tasks"
-                  : page === "Policy"
-                    ? "Rules of engagement"
-                    : page === "Reviews"
-                      ? "Review queue"
-                      : page === "Context"
-                        ? "Context & continuity"
-                        : page === "Learning"
-                          ? "Learning & rollback"
-                          : "Audit trail"}
+                  : page === "Agents"
+                    ? "Control tower"
+                    : page === "Policy"
+                      ? "Rules of engagement"
+                      : page === "Reviews"
+                        ? "Review queue"
+                        : page === "Context"
+                          ? "Context & continuity"
+                          : page === "Learning"
+                            ? "Learning & rollback"
+                            : "Audit trail"}
               </h1>
+              {lede[page] && <p className="page-lede">{lede[page]}</p>}
             </div>
             <button
               className="secondary"
               disabled={busy}
-              onClick={() =>
+              onClick={() => {
+                setBusy(true);
+                setError("");
                 void refresh()
-                  .then(() => setNotice("Updated"))
+                  .then(() => setNotice("Up to date"))
                   .catch((e) => setError(e.message))
-              }
+                  .finally(() => setBusy(false));
+              }}
             >
-              ↻ Refresh
+              {busy ? "Refreshing…" : "Refresh"}
             </button>
           </div>
           {state.previewNotice && (
@@ -613,8 +670,11 @@ function App() {
             </div>
           )}
           {notice && (
-            <div role="status" className="notice banner">
+            <div role="status" className="toast">
               {notice}
+              <button aria-label="Dismiss" onClick={() => setNotice("")}>
+                ×
+              </button>
             </div>
           )}
           {page === "Tasks" && (
@@ -626,7 +686,10 @@ function App() {
                 review={() => setPage("Reviews")}
                 diagnostics={() => setPage("Audit")}
               />
-              <details className="setup-controls">
+              <details
+                className="setup-controls"
+                open={!state.tasks.length || undefined}
+              >
                 <summary>Repository setup & runtime details</summary>
                 {unverified.length > 0 && (
                   <div className="warning">
@@ -791,6 +854,15 @@ function App() {
               </details>
             </>
           )}
+          {page === "Agents" && (
+            <Agents
+              state={state}
+              busy={busy}
+              action={action}
+              request={(path, data) => request(path, data)}
+              refresh={() => refresh()}
+            />
+          )}
           {page === "Policy" && (
             <PolicyEditor state={state} busy={busy} action={action} />
           )}
@@ -800,6 +872,12 @@ function App() {
                 Inspect the exact artifact before approving. Changed
                 dependencies invalidate earlier approvals.
               </p>
+              <ReviewQueue
+                state={state}
+                busy={busy}
+                action={action}
+                inspect={(id) => void inspect(id)}
+              />
               {!(state.stages as any[]).length ? (
                 <Empty title="No reviews waiting">
                   Stage artifacts and their review decisions will appear here.
@@ -1397,13 +1475,50 @@ function PolicyEditor({
       : (state.policies.find((p) => p.repository === scope)?.effective
           ?.repository ??
         state.policies.find((p) => p.repository === scope)?.effective?.global);
-  if (!record || !("policy" in record))
+  if (!record || !("policy" in record)) {
+    const broken = state.policies.find((p) => p.repository === scope),
+      violations =
+        broken && "violations" in broken ? broken.violations : undefined;
     return (
-      <Empty title="Published policy unavailable">
-        Protected operations are blocked. Restore a valid policy through local
-        recovery.
-      </Empty>
+      <>
+        <div className="scope-select">
+          <label htmlFor="policy-scope">Policy scope</label>
+          <select
+            id="policy-scope"
+            value={scope}
+            onChange={(e) => setScope(e.target.value)}
+          >
+            <option value="global">Global — all enrolled repositories</option>
+            {state.repositories.map((r) => (
+              <option value={r.id} key={r.id}>
+                {r.path}
+              </option>
+            ))}
+          </select>
+        </div>
+        <Empty title="Published policy unavailable">
+          {violations
+            ? `This repository's saved policy breaks a global limit (${Object.keys(violations).join(", ")}), so its protected operations are blocked.`
+            : "Protected operations are blocked. If it was saved by an earlier version, restart the engine to upgrade it."}
+        </Empty>
+        {violations && (
+          <button
+            className="primary"
+            disabled={busy}
+            onClick={() =>
+              void action(
+                "policies/repair",
+                { repository: scope },
+                "Removed what broke the global limits.",
+              )
+            }
+          >
+            Remove what breaks the global limits
+          </button>
+        )}
+      </>
     );
+  }
   return (
     <>
       <div className="scope-select">
@@ -1658,7 +1773,7 @@ function PolicyForm({
           Save candidate
         </button>
         <button className="primary" disabled={busy}>
-          Activate policy ↗
+          Activate policy
         </button>
       </div>
     </form>

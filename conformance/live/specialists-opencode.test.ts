@@ -160,7 +160,7 @@ test(
         research: "Researcher",
         plan: "Planner",
         implementation: "Implementer",
-        execution: "Verifier",
+        execution: "Executor",
         verification: "Verifier",
       };
       const stageArtifact = (stage: string) => {

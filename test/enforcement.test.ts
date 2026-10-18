@@ -43,11 +43,12 @@ function setup(role: Role = "Implementer") {
   );
   const auth = f.register();
   auth.session.role = role;
+  auth.session.agent = auth.session.role.toLowerCase();
   auth.session.enforcement = "enforced";
   auth.session.stage =
     role === "Researcher"
       ? "research"
-      : role === "Verifier"
+      : role === "Executor"
         ? "execution"
         : "implementation";
   f.identity.saveSession(auth.session);
@@ -262,7 +263,7 @@ test("authority: reviewed arguments, roles, paths, stages, exact commands, envir
   } finally {
     r.close();
   }
-  const v = setup("Verifier");
+  const v = setup("Executor");
   try {
     assert.throws(
       () =>

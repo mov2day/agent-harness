@@ -12,6 +12,7 @@ function setup() {
   );
   const registration = f.register();
   registration.session.role = "Planner";
+  registration.session.agent = registration.session.role.toLowerCase();
   registration.session.enforcement = "enforced";
   f.identity.saveSession(registration.session);
   f.identity.revokeTokens(registration.session.session);

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -480,6 +480,226 @@ test("HTTP: a failed specialist cleanup pauses dependent authority and remains v
     );
   } finally {
     bridge?.stop();
+    await f.close();
+  }
+});
+test("HTTP: the owner alone configures agents and reads the catalog of enrolled repositories", async () => {
+  const f = await serve();
+  try {
+    const owner = {
+      authorization: `Bearer ${f.credential.token}`,
+      origin: f.origin,
+    };
+    execFileSync("git", ["init", "-q", join(f.dir, "repository")], {
+      stdio: "pipe",
+    });
+    const repo = f.engine.enroll(join(f.dir, "repository"));
+    mkdirSync(join(f.dir, "repository", "src"));
+    const sub = join(f.dir, "repository", "src");
+    assert.equal(
+      (await f.post("/v1/owner/repositories/resolve", { path: sub })).status,
+      401,
+    );
+    const resolved = await (
+      await f.post("/v1/owner/repositories/resolve", { path: sub }, owner)
+    ).json();
+    assert.equal(resolved.root, repo.path);
+    assert.notEqual(resolved.path, resolved.root);
+    // Enrollment itself still requires the exact root.
+    assert.equal(
+      (await f.post("/v1/owner/repositories", { path: sub }, owner)).status,
+      403,
+    );
+    assert.equal(
+      (await f.post("/v1/owner/repositories/resolve", { path: f.dir }, owner))
+        .status,
+      400,
+    );
+    assert.equal((await f.post("/v1/owner/catalog", {})).status, 401);
+    const global = await (await f.post("/v1/owner/catalog", {}, owner)).json();
+    assert.ok(Array.isArray(global.skills) && Array.isArray(global.mcps));
+    assert.ok(global.tools.includes("research"));
+    assert.equal(
+      (await f.post("/v1/owner/catalog", { repository: repo.id }, owner))
+        .status,
+      200,
+    );
+    assert.equal(
+      (await f.post("/v1/owner/catalog", { repository: "/etc" }, owner)).status,
+      403,
+    );
+    // Custom agents and prompts are published only through the owner route.
+    const policy = f.engine.policies.active("global").policy;
+    const custom = {
+      id: "doc-writer",
+      name: "Doc writer",
+      kind: "custom",
+      baseRole: "Planner",
+      description: "Drafts documentation plans",
+      systemPrompt: "Write docs plans.",
+      tools: ["read", "artifact", "compact", "model"],
+      skills: [],
+      mcps: [],
+      enabled: true,
+    };
+    const body = {
+      scope: "global",
+      activate: true,
+      policy: { ...policy, agents: [...policy.agents, custom] },
+    };
+    assert.equal((await f.post("/v1/owner/policies", body)).status, 401);
+    assert.equal((await f.post("/v1/owner/policies", body, owner)).status, 200);
+    const invalid = await f.post(
+      "/v1/owner/policies",
+      {
+        ...body,
+        policy: {
+          ...policy,
+          agents: policy.agents.filter(
+            (a: { id: string }) => a.id !== "reviewer",
+          ),
+        },
+      },
+      owner,
+    );
+    assert.equal(invalid.status, 400);
+    assert.ok(
+      f.engine.policies
+        .active("global")
+        .policy.agents.some((a) => a.id === "doc-writer"),
+    );
+  } finally {
+    await f.close();
+  }
+});
+test("HTTP: the owner previews and publishes native OpenCode agents to the repository and global config", async () => {
+  const f = await serve();
+  const config = mkdtempSync(join(tmpdir(), "harness-xdg-")),
+    previous = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = config;
+  try {
+    const owner = {
+      authorization: `Bearer ${f.credential.token}`,
+      origin: f.origin,
+    };
+    execFileSync("git", ["init", "-q", join(f.dir, "repository")], {
+      stdio: "pipe",
+    });
+    const repo = f.engine.enroll(join(f.dir, "repository"));
+    const call = async (path: string, data: unknown, headers = owner) =>
+      f.post(`/v1/owner/opencode/${path}`, data, headers);
+    assert.equal((await call("publish", {}, {} as never)).status, 401);
+    const agentDir = join(repo.path, ".opencode", "agent");
+    const preview = await (
+      await call("preview", { repository: repo.id })
+    ).json();
+    assert.equal(preview.files.length, 7);
+    assert.ok(
+      preview.files.every((x: { action: string }) => x.action === "create"),
+    );
+    assert.equal(existsSync(agentDir), false, "preview writes nothing");
+    const published = await (
+      await call("publish", { repository: repo.id })
+    ).json();
+    assert.equal(published.written.length, 7);
+    assert.ok(existsSync(join(agentDir, "harness-orchestrator.md")));
+    assert.equal(
+      (
+        await (await call("preview", { repository: repo.id })).json()
+      ).files.every((x: { action: string }) => x.action === "unchanged"),
+      true,
+    );
+    assert.equal(
+      (await call("publish", { repository: "nope" })).status >= 400,
+      true,
+    );
+    await call("publish", {});
+    assert.ok(
+      existsSync(join(config, "opencode", "agent", "harness-verifier.md")),
+    );
+    assert.ok(
+      f.engine.store.db
+        .prepare("SELECT 1 FROM audit WHERE event='opencode.exported'")
+        .get(),
+    );
+  } finally {
+    if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previous;
+    rmSync(config, { recursive: true, force: true });
+    await f.close();
+  }
+});
+test("HTTP: manual review decisions and review points are owner-only", async () => {
+  const f = await serve();
+  try {
+    const owner = {
+      authorization: `Bearer ${f.credential.token}`,
+      origin: f.origin,
+    };
+    const bodies: Record<string, unknown> = {
+      "/v1/owner/external/decide": { review: id(), decision: "approve" },
+      "/v1/owner/stages/start": {
+        root: id(),
+        stage: "plan",
+        decision: "approve",
+      },
+      "/v1/owner/reviews/reject": {
+        root: id(),
+        artifact: id(),
+        review: id(),
+        comment: "redo",
+      },
+    };
+    for (const [path, body] of Object.entries(bodies)) {
+      assert.equal((await f.post(path, body)).status, 401, path);
+      assert.ok((await f.post(path, body, owner)).status >= 400, path);
+    }
+    assert.equal(
+      (
+        await f.post(
+          "/v1/owner/reviews/reject",
+          { ...(bodies["/v1/owner/reviews/reject"] as object), comment: " " },
+          owner,
+        )
+      ).status,
+      400,
+    );
+    const policy = f.engine.policies.active("global").policy;
+    const publish = (humanReview: object) =>
+      f.post(
+        "/v1/owner/policies",
+        {
+          scope: "global",
+          activate: true,
+          policy: { ...policy, humanReview },
+        },
+        owner,
+      );
+    assert.equal(
+      (
+        await publish({
+          beforeStages: ["plan", "implementation"],
+          externalContent: "approve-url",
+          trustedDomains: [],
+        })
+      ).status,
+      200,
+    );
+    assert.deepEqual(
+      f.engine.policies.active("global").policy.humanReview.beforeStages,
+      ["plan", "implementation"],
+    );
+    assert.equal(
+      (
+        await publish({
+          beforeStages: [],
+          externalContent: "maybe",
+          trustedDomains: [],
+        })
+      ).status,
+      400,
+    );
+  } finally {
     await f.close();
   }
 });

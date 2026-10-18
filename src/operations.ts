@@ -14,6 +14,7 @@ import type { Policies } from "./policy.js";
 import { DenialMonitor } from "./monitoring.js";
 import { modelRequestSchema } from "./model-channel.js";
 import { delegateSchema } from "./specialists.js";
+import { agentToolAllowed, rolePermissions, sessionAgent } from "./agents.js";
 const path = z.string().min(1).max(2048);
 export const toolSchemas = {
   model: z.object({ request: modelRequestSchema }).strict(),
@@ -100,22 +101,7 @@ export const toolSchemas = {
   learn: z.object({ candidate: z.unknown() }).strict(),
 };
 export type Tool = keyof typeof toolSchemas;
-const permissions: Record<Role, Tool[]> = {
-  Conductor: ["delegate", "artifact", "compact", "learn", "model"],
-  Researcher: ["read", "research", "artifact", "compact", "model"],
-  Planner: ["read", "artifact", "compact", "model"],
-  Implementer: [
-    "read",
-    "change",
-    "delete",
-    "rename",
-    "artifact",
-    "compact",
-    "model",
-  ],
-  Reviewer: ["read", "review", "artifact", "compact", "learn", "model"],
-  Verifier: ["read", "execute", "artifact", "compact", "model"],
-};
+const permissions = rolePermissions as Record<Role, Tool[]>;
 const toolStages: Partial<Record<Tool, Stage[]>> = {
   research: ["research"],
   change: ["implementation"],
@@ -291,6 +277,12 @@ export class Operations {
     const e = this.policies.effective(s.repository);
     check(e.id === s.policy, "policy_changed");
     check(permissions[s.role].includes(tool), "role_authority");
+    const agent = sessionAgent(e.policy.agents, s);
+    check(
+      !s.agent || (agent?.enabled && agent.baseRole === s.role),
+      "agent_unavailable",
+    );
+    check(agentToolAllowed(agent, s.role, tool), "agent_tool_denied");
     check(e.policy.tools.includes(tool), "policy_tool_denied");
     if (tool === "model")
       check(

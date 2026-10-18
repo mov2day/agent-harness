@@ -5,11 +5,25 @@ import { Operations } from "../src/operations.js";
 import { defaultPolicy } from "../src/policy.js";
 import { id, canonical, type Session, type Role } from "../src/core.js";
 import { fixture } from "./helpers.js";
-function setup(limit = 1, humanGates: typeof defaultPolicy.humanGates = []) {
+const allStages = defaultPolicy.orchestration.verifyStages;
+function setup(
+  limit = 1,
+  humanGates: typeof defaultPolicy.humanGates = [],
+  orchestration: typeof defaultPolicy.orchestration = {
+    verifyStages: [],
+    reviewStages: allStages,
+  },
+) {
   const f = fixture();
   f.policies.publish(
     "global",
-    { ...defaultPolicy, revisionLimit: limit, humanGates, maxSpecialists: 4 },
+    {
+      ...defaultPolicy,
+      revisionLimit: limit,
+      humanGates,
+      maxSpecialists: 4,
+      orchestration,
+    },
     true,
   );
   const root = f.register().session;

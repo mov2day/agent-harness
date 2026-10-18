@@ -139,6 +139,7 @@ export function taskViews(store: Store) {
         repository: root.repository,
         title: authority?.goals[0] || "Coding task awaiting a goal",
         stage: root.stage,
+        route: root.route,
         status: root.status,
         enforcement: root.enforcement,
         pauseReason:

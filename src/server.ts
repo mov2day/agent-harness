@@ -139,6 +139,175 @@ export function createEngineServer(
           case "/v1/owner/state":
             result = engine.state();
             break;
+          case "/v1/owner/catalog":
+            result = engine.catalog(
+              z
+                .object({ repository: z.string().optional() })
+                .strict()
+                .parse(data).repository,
+            );
+            break;
+          case "/v1/owner/opencode/models": {
+            const d = z
+              .object({
+                repository: z.string().optional(),
+                refresh: z.boolean().optional(),
+              })
+              .strict()
+              .parse(data);
+            result = await engine.openCodeModels(
+              d.repository,
+              d.refresh === true,
+            );
+            break;
+          }
+          case "/v1/owner/sync/preview":
+          case "/v1/owner/sync/write":
+          case "/v1/owner/sync/verify": {
+            const d = z
+              .object({
+                repository: z.string().optional(),
+                targets: z
+                  .object({ toml: z.boolean(), opencode: z.boolean() })
+                  .strict()
+                  .default({ toml: true, opencode: true }),
+                replaceToml: z.boolean().optional(),
+                load: z.boolean().optional(),
+              })
+              .strict()
+              .parse(data);
+            result = url.pathname.endsWith("/preview")
+              ? engine.syncPreview(d.repository, d.targets)
+              : url.pathname.endsWith("/write")
+                ? await engine.syncWrite(d.repository, d.targets, d.replaceToml)
+                : {
+                    checks: await engine.verifyHarness(
+                      d.repository,
+                      d.load === true,
+                    ),
+                  };
+            break;
+          }
+          case "/v1/owner/toml/export":
+          case "/v1/owner/toml/file": {
+            const d = z
+              .object({ repository: z.string().optional() })
+              .strict()
+              .parse(data);
+            result = url.pathname.endsWith("/file")
+              ? engine.tomlFile(d.repository)
+              : { toml: engine.exportToml(d.repository) };
+            break;
+          }
+          case "/v1/owner/toml/write-preview":
+          case "/v1/owner/toml/write": {
+            const d = z
+              .object({
+                repository: z.string().optional(),
+                replace: z.boolean().optional(),
+              })
+              .strict()
+              .parse(data);
+            result = engine.writeToml(
+              d.repository,
+              url.pathname.endsWith("/write"),
+              d.replace,
+            );
+            break;
+          }
+          case "/v1/owner/toml/validate":
+          case "/v1/owner/toml/import": {
+            const d = z
+              .object({
+                repository: z.string().optional(),
+                toml: z.string().max(600_000),
+                acknowledgeGrants: z.boolean().optional(),
+              })
+              .strict()
+              .parse(data);
+            result = engine.importToml(
+              d.repository,
+              d.toml,
+              url.pathname.endsWith("/import"),
+              d.acknowledgeGrants === true,
+            );
+            break;
+          }
+          case "/v1/owner/stages/start": {
+            const d = z
+              .object({
+                root: z.string().uuid(),
+                stage: z.enum([
+                  "research",
+                  "plan",
+                  "implementation",
+                  "execution",
+                  "verification",
+                ]),
+                decision: z.enum(["approve", "reject"]),
+                comment: z.string().max(2000).optional(),
+              })
+              .strict()
+              .parse(data);
+            result = engine.workflow.approveStart(
+              d.root,
+              d.stage,
+              d.decision,
+              d.comment,
+            );
+            break;
+          }
+          case "/v1/owner/reviews/reject": {
+            const d = z
+              .object({
+                root: z.string().uuid(),
+                artifact: z.string().uuid(),
+                review: z.string().uuid(),
+                comment: z.string().trim().min(1).max(2000),
+              })
+              .strict()
+              .parse(data);
+            result = engine.workflow.rejectStage(
+              d.root,
+              d.artifact,
+              d.review,
+              d.comment,
+            );
+            break;
+          }
+          case "/v1/owner/external/decide": {
+            const d = z
+              .object({
+                review: z.string().uuid(),
+                decision: z.enum(["approve", "reject"]),
+                comment: z.string().max(2000).optional(),
+              })
+              .strict()
+              .parse(data);
+            result = engine.externalReviews.decide(
+              d.review,
+              d.decision,
+              d.comment,
+            );
+            break;
+          }
+          case "/v1/owner/opencode/preview":
+          case "/v1/owner/opencode/publish": {
+            const d = z
+              .object({ repository: z.string().optional() })
+              .strict()
+              .parse(data);
+            result = engine.openCodeExport(
+              d.repository,
+              url.pathname.endsWith("/publish"),
+            );
+            break;
+          }
+          case "/v1/owner/repositories/resolve":
+            result = engine.resolveRepository(
+              z.object({ path: z.string() }).strict().parse(data).path,
+            );
+            break;
           case "/v1/owner/repositories":
             result = engine.enroll(
               z.object({ path: z.string() }).strict().parse(data).path,
@@ -150,10 +319,30 @@ export function createEngineServer(
                 scope: z.string(),
                 policy: z.unknown(),
                 activate: z.boolean(),
+                repair: z.boolean().optional(),
+                acknowledgeGrants: z.boolean().optional(),
               })
               .strict()
               .parse(data);
-            result = engine.policies.publish(d.scope, d.policy, d.activate);
+            result = engine.policies.publish(d.scope, d.policy, d.activate, {
+              repair: d.repair,
+              acknowledgeGrants: d.acknowledgeGrants,
+            });
+            break;
+          }
+          case "/v1/owner/policies/preview": {
+            const d = z
+              .object({ repository: z.string(), policy: z.unknown() })
+              .strict()
+              .parse(data);
+            engine.repositories.verify(d.repository);
+            result = engine.policies.grantPreview(d.repository, d.policy);
+            break;
+          }
+          case "/v1/owner/policies/repair": {
+            const d = z.object({ repository: z.string() }).strict().parse(data);
+            engine.repositories.verify(d.repository);
+            result = engine.policies.repair(d.repository);
             break;
           }
           case "/v1/owner/authority": {

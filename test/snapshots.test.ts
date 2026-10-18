@@ -27,7 +27,8 @@ function setup() {
     true,
   );
   const scope = f.register().session;
-  scope.role = "Verifier";
+  scope.role = "Executor";
+  scope.agent = scope.role.toLowerCase();
   scope.stage = "execution";
   scope.enforcement = "enforced";
   f.identity.saveSession(scope);

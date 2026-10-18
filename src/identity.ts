@@ -1,3 +1,4 @@
+import { resolveAgent } from "./agents.js";
 import { execFileSync } from "node:child_process";
 import {
   realpathSync,
@@ -13,6 +14,7 @@ import { join, resolve } from "node:path";
 import { z } from "zod";
 import {
   check,
+  HarnessError,
   digest,
   equal,
   hash,
@@ -82,6 +84,23 @@ const git = (root: string, args: string[]) =>
   }).trim();
 export class Repositories {
   constructor(readonly store: Store) {}
+  /** The worktree root containing a folder. Lets the owner confirm the folder
+   * to enroll; enrollment itself still requires the exact root. */
+  resolve(path: string) {
+    try {
+      const root = realpathSync(path);
+      return {
+        path: root,
+        root: realpathSync(git(root, ["rev-parse", "--show-toplevel"])),
+      };
+    } catch {
+      throw new HarnessError(
+        "not_a_git_worktree",
+        "That folder is not inside a Git worktree",
+        400,
+      );
+    }
+  }
   enroll(path: string): Repository {
     const root = realpathSync(path),
       top = realpathSync(git(root, ["rev-parse", "--show-toplevel"]));
@@ -284,7 +303,10 @@ export class Identity {
         status: "active",
         stage: "research",
         skills: this.approvedSkills(binding.repository),
-        model: policy.policy.models.Conductor,
+        agent: "orchestrator",
+        model:
+          resolveAgent(policy.policy.agents, "orchestrator")?.model ??
+          policy.policy.models.Conductor,
         policy: policy.id,
         enforcement: "unverified",
         created: this.store.clock.now(),

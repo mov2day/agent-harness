@@ -13,13 +13,20 @@ export const delegateSchema = z.union([
   z
     .object({
       action: z.literal("start").optional(),
-      role: z.enum([
-        "Researcher",
-        "Planner",
-        "Implementer",
-        "Reviewer",
-        "Verifier",
-      ]),
+      role: z
+        .enum([
+          "Researcher",
+          "Planner",
+          "Implementer",
+          "Executor",
+          "Reviewer",
+          "Verifier",
+        ])
+        .optional(),
+      agent: z
+        .string()
+        .regex(/^[a-z][a-z0-9-]{1,39}$/)
+        .optional(),
       ...assignment,
       model: z.string().min(1).optional(),
       reasoning: z.string().min(1).optional(),
@@ -28,7 +35,8 @@ export const delegateSchema = z.union([
     .refine(
       (v) => !!v.model === !!v.reasoning,
       "Model and reasoning must be assigned together",
-    ),
+    )
+    .refine((v) => !!v.role || !!v.agent, "Name a role or an agent"),
   z
     .object({
       action: z.literal("message"),
@@ -40,6 +48,23 @@ export const delegateSchema = z.union([
     .object({ action: z.literal("finish"), session: z.string().uuid() })
     .strict(),
   z.object({ action: z.literal("status"), task: z.string().uuid() }).strict(),
+  z
+    .object({
+      action: z.literal("route"),
+      stages: z
+        .array(
+          z.enum([
+            "research",
+            "plan",
+            "implementation",
+            "execution",
+            "verification",
+          ]),
+        )
+        .min(1)
+        .max(5),
+    })
+    .strict(),
 ]);
 export type Delegation = z.infer<typeof delegateSchema>;
 export interface SpecialistTask {
@@ -227,8 +252,20 @@ export class Specialists {
     );
   }
   execute(scope: Session, input: Delegation) {
+    // Open the owner's start review first so it persists even when this call
+    // is refused because the review is still pending.
+    if (
+      !("action" in input) ||
+      input.action === "start" ||
+      input.action === "message"
+    )
+      this.workflow.ensureStart(scope.root);
     return this.store.transaction(() => {
       const parent = this.parent(scope);
+      if (input.action === "route") {
+        const root = this.workflow.setRoute(parent, input.stages);
+        return { route: root.route, stage: root.stage };
+      }
       if (input.action === "status") {
         const task = this.get(parent, input.task);
         if (task.result) {
@@ -246,6 +283,7 @@ export class Specialists {
         this.workflow.terminate(parent, child.session);
         return { session: child.session, status: "terminated" as const };
       }
+      this.workflow.assertStarted(this.identity.session(parent.root));
       const child =
         input.action === "message"
           ? this.child(parent, input.session)
@@ -255,6 +293,7 @@ export class Specialists {
               input.model
                 ? { model: input.model, reasoning: input.reasoning! }
                 : undefined,
+              input.agent,
             ).session;
       this.idle(child);
       const inputs: Record<string, string> = {};

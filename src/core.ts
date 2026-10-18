@@ -63,6 +63,7 @@ export const roles = [
   "Researcher",
   "Planner",
   "Implementer",
+  "Executor",
   "Reviewer",
   "Verifier",
 ] as const;
@@ -89,6 +90,10 @@ export interface Session extends Scope {
   integration: string;
   runtimeSession: string;
   parent?: string;
+  /** Owner-approved agent definition this session runs as. */
+  agent?: string;
+  /** Stages the Orchestrator chose for this root; absent means all of them. */
+  route?: Stage[];
   depth: number;
   status: "active" | "paused" | "terminated" | "needs_attention";
   stage: Stage;

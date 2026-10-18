@@ -23,11 +23,12 @@ function setup(role: Role) {
   );
   const auth = f.register();
   auth.session.role = role;
+  auth.session.agent = auth.session.role.toLowerCase();
   auth.session.enforcement = "enforced";
   auth.session.stage =
     role === "Researcher"
       ? "research"
-      : role === "Verifier"
+      : role === "Executor"
         ? "execution"
         : "implementation";
   f.identity.saveSession(auth.session);
@@ -151,7 +152,7 @@ test("network spelling: only exact allowlisted hostnames pass, whatever the URL 
 });
 
 test("command spelling: path aliases, extra arguments, environment and working directory do not match", () => {
-  const f = setup("Verifier");
+  const f = setup("Executor");
   try {
     const exact = {
       executable: "/bin/echo",

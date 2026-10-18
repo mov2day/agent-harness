@@ -10,7 +10,39 @@ import {
 } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { Store } from "./store.js";
-import { Policies, defaultPolicy } from "./policy.js";
+import { Policies, defaultPolicy, type Policy } from "./policy.js";
+import {
+  effectiveList,
+  coreTools,
+  leastPrivilegeNotes,
+  mandatoryIssues,
+  recommendedTools,
+  requiredPolicyTools,
+  requiredTools,
+  rolePermissions,
+  sessionAgent,
+  stageRoles,
+} from "./agents.js";
+import { discoverCatalog } from "./catalog.js";
+import {
+  listOpenCodeAgents,
+  listOpenCodeModels,
+  type Check,
+  type SyncTargets,
+} from "./harness-sync.js";
+import {
+  applyTomlWrite,
+  planTomlWrite,
+  policyToToml,
+  readTomlFile,
+  tomlToPolicy,
+} from "./harness-toml.js";
+import { ExternalReviews } from "./external-review.js";
+import {
+  applyExport,
+  planExport,
+  webSearchEnabled,
+} from "./opencode-export.js";
 import { Identity, Repositories } from "./identity.js";
 import { Containment } from "./containment.js";
 import { Operations } from "./operations.js";
@@ -27,6 +59,7 @@ import { taskViews } from "./task-view.js";
 import { ModelChannel } from "./model-channel.js";
 import { Runtimes, type RuntimeLaunch } from "./runtimes.js";
 import { Specialists, type SpecialistTask } from "./specialists.js";
+import { homedir } from "node:os";
 import { check, id, type Clock, type Session } from "./core.js";
 export interface EngineOptions {
   state: string;
@@ -44,6 +77,7 @@ export class Engine {
   readonly operations: Operations;
   readonly files: NativeFiles;
   readonly gateway: Gateway;
+  readonly externalReviews: ExternalReviews;
   readonly models: ModelChannel;
   readonly runtimes: Runtimes;
   readonly artifacts: Artifacts;
@@ -126,6 +160,7 @@ export class Engine {
       );
       this.files = new NativeFiles(options.helper);
       this.gateway = new Gateway(this.store, this.operations);
+      this.externalReviews = new ExternalReviews(this.store, this.policies);
       this.models = new ModelChannel(this.store, this.operations);
       this.artifacts = new Artifacts(this.store, this.identity);
       this.snapshots = new Snapshots(
@@ -161,8 +196,10 @@ export class Engine {
       this.compaction.setInvalidator((session, reason) =>
         this.operations.invalidate(session, reason),
       );
-      this.contextWindow = new ContextWindow(this.compaction, (scope) =>
-        this.specialists.context(scope),
+      this.contextWindow = new ContextWindow(
+        this.compaction,
+        (scope) => this.specialists.context(scope),
+        (scope) => this.agentContext(scope),
       );
       this.learning = new Learning(this.store, this.artifacts, this.operations);
       this.evaluations = initializedEvaluations = new Evaluations(
@@ -184,6 +221,7 @@ export class Engine {
           options.workerImage,
           this.snapshots,
         );
+      this.policies.migrateLegacy();
       if (!this.store.get("meta", "initialized"))
         this.store.transaction(() => {
           this.policies.publish("global", defaultPolicy, true);
@@ -235,6 +273,9 @@ export class Engine {
       unlinkSync(this.lock);
       throw error;
     }
+  }
+  resolveRepository(path: string) {
+    return this.repositories.resolve(path);
   }
   enroll(path: string) {
     const canonical = realpathSync(path),
@@ -315,17 +356,10 @@ export class Engine {
             op,
             this.operations,
           );
-        case "research": {
-          const evidence = await this.gateway.fetch(op, signal);
-          return {
-            id: evidence.id,
-            hash: evidence.hash,
-            url: evidence.url,
-            trust: evidence.trust,
-            content: evidence.content.slice(0, 16_384),
-            truncated: evidence.content.length > 16_384,
-          };
-        }
+        case "research":
+          return this.externalReviews.handle(scope, op.args.url, () =>
+            this.gateway.fetch(op, signal),
+          );
         case "execute": {
           check(this.workers, "workers_unconfigured");
           const result = await this.workers.execute(op, signal);
@@ -394,6 +428,7 @@ export class Engine {
                   root: scope.root,
                   role: scope.role,
                   model: scope.model,
+                  ...this.agentContext(scope),
                 },
                 assignments: this.specialists.context(scope),
               }
@@ -405,6 +440,505 @@ export class Engine {
       }
     });
   }
+  /** harness.toml for a scope: the repository's own policy if it has one,
+   * otherwise an empty override list so it keeps inheriting the global harness. */
+  exportToml(repository?: string) {
+    if (!repository) return policyToToml(this.policies.active("global").policy);
+    this.repositories.verify(repository);
+    const effective = this.policies.effective(repository);
+    return policyToToml(
+      effective.repository?.policy ?? {
+        ...effective.global.policy,
+        agents: [],
+      },
+    );
+  }
+  /** Validate (and optionally publish) a harness.toml. The owner reviews the
+   * result first; errors name the offending fields. */
+  importToml(
+    repository: string | undefined,
+    text: string,
+    publish: boolean,
+    acknowledgeGrants = false,
+  ) {
+    const scope = repository ?? "global";
+    if (repository) this.repositories.verify(repository);
+    const candidate = tomlToPolicy(text);
+    this.policies.validate(scope, candidate);
+    return publish
+      ? {
+          published: this.policies.publish(scope, candidate, true, {
+            acknowledgeGrants,
+          }).id,
+        }
+      : { valid: true };
+  }
+  private tomlPath(repository?: string) {
+    return repository
+      ? join(
+          this.repositories.verify(repository).path,
+          ".agent-harness",
+          "harness.toml",
+        )
+      : join(
+          process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"),
+          "agent-harness",
+          "harness.toml",
+        );
+  }
+  tomlFile(repository?: string) {
+    return readTomlFile(this.tomlPath(repository));
+  }
+  /** Preview, or write, the published harness as harness.toml in its home:
+   * the repository's `.agent-harness/` or the user's config directory. The
+   * file mirrors the published policy; it is never read back automatically. */
+  writeToml(repository: string | undefined, write: boolean, replace = false) {
+    const path = this.tomlPath(repository),
+      content = this.exportToml(repository),
+      plan = planTomlWrite(path, content);
+    if (!write)
+      return {
+        ...plan,
+        replaceable:
+          plan.action === "conflict" &&
+          plan.reason?.startsWith("A harness.toml you wrote") === true,
+      };
+    applyTomlWrite(plan, content, replace);
+    this.store.audit(
+      "toml.written",
+      { path, action: plan.action, replaced: plan.action === "conflict" },
+      repository ?? "",
+    );
+    return { ...plan, written: true };
+  }
+  private modelCache?: { key: string; at: number; value: unknown };
+  /** Models from the providers connected in OpenCode, and which of them an
+   * enforced session may use (those a runtime certificate lists). Cached for
+   * a few minutes; `refresh` asks OpenCode again. */
+  async openCodeModels(repository: string | undefined, refresh: boolean) {
+    const cwd = repository ? this.targets(repository).cwd : homedir(),
+      key = `${cwd}`;
+    const fresh =
+      this.modelCache &&
+      this.modelCache.key === key &&
+      Date.now() - this.modelCache.at < 300_000;
+    if (!refresh && fresh)
+      return {
+        ...(this.modelCache!.value as object),
+        certified: this.containment.capabilities(),
+      };
+    const found = await listOpenCodeModels(cwd, refresh);
+    if (found.available)
+      this.modelCache = { key, at: Date.now(), value: found };
+    return { ...found, certified: this.containment.capabilities() };
+  }
+  private targets(repository?: string) {
+    const root = repository
+      ? this.repositories.verify(repository).path
+      : undefined;
+    return {
+      cwd: root ?? homedir(),
+      openCodeBase: this.openCodeTarget(repository).base,
+    };
+  }
+  /** One preview for everything published from the harness: the readable
+   * harness.toml and the native OpenCode agents. Writes nothing. */
+  syncPreview(repository: string | undefined, targets: SyncTargets) {
+    return {
+      toml: targets.toml ? this.writeToml(repository, false) : undefined,
+      opencode: targets.opencode
+        ? this.openCodeExport(repository, false)
+        : undefined,
+    };
+  }
+  /** Write the chosen outputs from the published harness, then check them.
+   * A target that cannot be written (for example a file you own) is reported
+   * and does not stop the other. */
+  async syncWrite(
+    repository: string | undefined,
+    targets: SyncTargets,
+    replaceToml = false,
+  ) {
+    const attempt = <T>(work: () => T) => {
+      try {
+        return { ok: true as const, result: work() };
+      } catch (error) {
+        return { ok: false as const, error: (error as Error).message };
+      }
+    };
+    const toml = targets.toml
+      ? attempt(() => this.writeToml(repository, true, replaceToml))
+      : undefined;
+    const opencode = targets.opencode
+      ? attempt(() => this.openCodeExport(repository, true))
+      : undefined;
+    return {
+      toml,
+      opencode,
+      checks: await this.verifyHarness(repository, false),
+    };
+  }
+  /** Is what the harness published what is actually in force and on disk?
+   * `load` also asks the installed OpenCode which agents it resolves. */
+  async verifyHarness(repository: string | undefined, load: boolean) {
+    const checks: Check[] = [];
+    const add = (
+      id: string,
+      label: string,
+      status: Check["status"],
+      detail: string,
+    ) => checks.push({ id, label, status, detail });
+    let policy: Policy;
+    try {
+      policy = repository
+        ? this.policies.effective(repository).policy
+        : this.policies.active("global").policy;
+    } catch (error) {
+      add("policy", "Published policy loads", "fail", (error as Error).message);
+      return checks;
+    }
+    const enabled = policy.agents.filter((a) => a.enabled);
+    add(
+      "policy",
+      "Published policy loads",
+      "ok",
+      `${enabled.length} of ${policy.agents.length} agents enabled`,
+    );
+    const issues = mandatoryIssues(policy.agents);
+    add(
+      "mandatory",
+      "Orchestrator, Verifier and Reviewer are enabled",
+      Object.keys(issues).length ? "fail" : "ok",
+      Object.values(issues).join("; ") || "All three are present",
+    );
+    if (repository) {
+      const grants = this.policies.grantsFor(repository);
+      add(
+        "grants",
+        "Granted to this repository only",
+        "ok",
+        Object.keys(grants).length
+          ? Object.values(grants).join("; ")
+          : "Nothing beyond the global defaults",
+      );
+    }
+    const lacking = requiredPolicyTools.filter(
+      (t) => !policy.tools.includes(t),
+    );
+    add(
+      "tools-required",
+      "Tools every workflow needs are enabled",
+      lacking.length ? "fail" : "ok",
+      lacking.length
+        ? `Enable ${lacking.join(", ")} in Policy → Protected tools, or the Orchestrator, Verifier or Reviewer cannot work`
+        : "model, compact, artifact, delegate and review are enabled",
+    );
+    const unused = [
+      policy.tools.includes("execute") &&
+        !policy.commands.length &&
+        "execute is enabled but no command is approved",
+      policy.tools.includes("research") &&
+        !policy.domains.length &&
+        "research is enabled but no domain is allowed",
+      policy.tools.includes("delegate") &&
+        (policy.maxDepth === 0 || policy.maxSpecialists === 0) &&
+        "delegation is enabled but the depth or agent limit is 0",
+    ].filter(Boolean) as string[];
+    add(
+      "tools-resources",
+      "Enabled tools have what they need",
+      unused.length ? "warn" : "ok",
+      unused.join("; ") ||
+        "Every enabled tool has its commands, domains or limits",
+    );
+    const certified = this.containment.capabilities(),
+      uncertified = enabled.filter(
+        (a) =>
+          a.model &&
+          !certified[a.baseRole]?.[a.model.model]?.includes(a.model.reasoning),
+      );
+    add(
+      "models",
+      "Agent models can run in enforced sessions",
+      uncertified.length ? "warn" : "ok",
+      uncertified.length
+        ? `${uncertified.map((a) => `${a.name} (${a.model!.model})`).join(", ")} ${uncertified.length === 1 ? "works" : "work"} in native OpenCode, but enforced sessions refuse ${uncertified.length === 1 ? "it" : "them"} until a runtime certificate lists the model`
+        : enabled.some((a) => a.model)
+          ? "Every agent model is certified"
+          : "No agent overrides the role's model",
+    );
+    // Why a Researcher can or cannot reach outside sources right now.
+    const researchers = enabled.filter(
+      (a) => a.baseRole === "Researcher" && a.tools.includes("research"),
+    );
+    const blockers = [
+      !researchers.length &&
+        "no enabled agent holds the research tool (turn on the Researcher)",
+      !policy.tools.includes("research") &&
+        "research is off in the policy (turn on Web research)",
+      !policy.domains.length &&
+        "no domain is allowed, so every address is refused (add domains)",
+    ].filter(Boolean) as string[];
+    const review = policy.humanReview;
+    add(
+      "research",
+      "Web research is ready",
+      blockers.length ? "warn" : "ok",
+      blockers.length
+        ? `The Researcher cannot fetch anything yet: ${blockers.join("; ")}.`
+        : `Allowed: ${policy.domains.join(", ")}. ${
+            review.externalContent === "off"
+              ? "Fetched text goes straight to the agent (cleaned, untrusted)."
+              : review.externalContent === "approve-url"
+                ? "Each address waits for your approval under Reviews."
+                : "Fetched text waits for your approval under Reviews before the agent sees it."
+          } Research runs during the research stage.`,
+    );
+    // Native OpenCode: the websearch permission is exported, but OpenCode
+    // only registers the tool when it is started with a search provider flag.
+    if (researchers.length && policy.tools.includes("research"))
+      add(
+        "opencode-websearch",
+        "Web search in your own OpenCode",
+        webSearchEnabled() ? "ok" : "warn",
+        webSearchEnabled()
+          ? "A search provider flag is set, so OpenCode started from this environment offers websearch"
+          : "OpenCode offers websearch only with the OpenCode Zen or Go provider or when started as `OPENCODE_ENABLE_EXA=1 opencode` (or OPENCODE_ENABLE_PARALLEL=1). Without it the Researcher can only fetch known pages with webfetch",
+      );
+    const notes = leastPrivilegeNotes(policy.agents);
+    add(
+      "least-privilege",
+      "Built-in agents follow least privilege",
+      notes.length ? "warn" : "ok",
+      notes.length
+        ? `${notes.join("; ")}. Use "Use recommended tools" on the agent.`
+        : "Researcher is web-only and Verifier does not run commands",
+    );
+    const catalog = this.catalog(repository),
+      known = new Set([...catalog.skills, ...catalog.mcps].map((e) => e.name)),
+      missing = [
+        ...new Set(
+          enabled.flatMap((a) =>
+            [...a.skills, ...a.mcps].filter((x) => !known.has(x)),
+          ),
+        ),
+      ];
+    add(
+      "references",
+      "Skills and MCP servers exist",
+      missing.length ? "warn" : "ok",
+      missing.length
+        ? `Not found in your configuration: ${missing.join(", ")}`
+        : "Every skill and MCP server an agent uses was found",
+    );
+    // harness.toml
+    const tomlPlan = planTomlWrite(
+      this.tomlPath(repository),
+      this.exportToml(repository),
+    );
+    const file = readTomlFile(tomlPlan.path);
+    let tomlDetail = "";
+    let tomlStatus: Check["status"] = "ok";
+    if (tomlPlan.action === "unchanged")
+      tomlDetail = "Matches the published harness";
+    else if (tomlPlan.action === "create") {
+      tomlStatus = "warn";
+      tomlDetail = "Not written yet (optional)";
+    } else {
+      tomlStatus = "warn";
+      let loads = "";
+      try {
+        this.policies.validate(
+          repository ?? "global",
+          tomlToPolicy(file.text ?? ""),
+        );
+        loads =
+          " The file is valid; import it to apply it, or write to overwrite it.";
+      } catch (error) {
+        tomlStatus = "fail";
+        loads = ` The file does not load: ${(error as Error).message.split("\n")[0]}`;
+      }
+      tomlDetail =
+        (tomlPlan.action === "update"
+          ? "Out of sync with the published harness."
+          : (tomlPlan.reason ?? "Kept.")) + loads;
+    }
+    add("toml", "harness.toml", tomlStatus, tomlDetail);
+    // OpenCode files
+    const { base, policy: openCodePolicy } = this.openCodeTarget(repository);
+    let plan: ReturnType<typeof planExport> | undefined;
+    try {
+      plan = planExport(base, openCodePolicy.agents, openCodePolicy);
+    } catch (error) {
+      add(
+        "opencode-files",
+        "OpenCode agent files",
+        "fail",
+        (error as Error).message,
+      );
+    }
+    if (plan) {
+      const count = (action: string) =>
+        plan!.files.filter((f) => f.action === action).length;
+      const behind = count("create") + count("update") + count("remove"),
+        kept = count("conflict");
+      add(
+        "opencode-files",
+        "OpenCode agent files",
+        behind || kept ? "warn" : "ok",
+        behind || kept
+          ? [
+              count("unchanged") && `${count("unchanged")} in sync`,
+              count("create") && `${count("create")} not written`,
+              count("update") && `${count("update")} out of date`,
+              count("remove") &&
+                `${count("remove")} left from a disabled agent`,
+              kept && `${kept} kept because you wrote them`,
+            ]
+              .filter(Boolean)
+              .join(", ")
+          : `All ${count("unchanged")} agent files match the published harness`,
+      );
+      if (load) {
+        const found = await listOpenCodeAgents(
+          repository ? this.targets(repository).cwd : homedir(),
+        );
+        if (!found.ok)
+          add(
+            "opencode-load",
+            "OpenCode loads the agents",
+            found.missing ? "warn" : "fail",
+            found.reason,
+          );
+        else {
+          const expected = plan.files.filter((f) => f.action === "unchanged");
+          const wrong = expected.filter((f) => {
+            const name = f.name.replace(/\.md$/, "");
+            const mode = found.agents.get(name);
+            return (
+              !mode ||
+              (name === "harness-orchestrator"
+                ? mode !== "primary"
+                : mode === "primary")
+            );
+          });
+          add(
+            "opencode-load",
+            "OpenCode loads the agents",
+            wrong.length ? "fail" : expected.length ? "ok" : "warn",
+            wrong.length
+              ? `OpenCode did not resolve: ${wrong.map((f) => f.name.replace(/\.md$/, "")).join(", ")}`
+              : expected.length
+                ? `OpenCode resolved all ${expected.length} agents`
+                : "No agent files are in sync to check yet",
+          );
+        }
+      }
+    }
+    return checks;
+  }
+  /** Skills and MCP servers the owner can allow, from global and repository
+   * configuration. Repositories are identified by enrollment, never by path. */
+  catalog(repository?: string) {
+    const record = repository
+      ? this.store.get<{ id: string; path: string }>("repository", repository)
+      : undefined;
+    check(!repository || record, "repository_not_enrolled");
+    return discoverCatalog({ home: homedir(), repositoryPath: record?.path });
+  }
+  /** Where native OpenCode config lives: the enrolled worktree for a
+   * repository, the user's OpenCode config directory for the global harness. */
+  private openCodeTarget(repository?: string) {
+    if (!repository)
+      return {
+        base: join(
+          process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"),
+          "opencode",
+        ),
+        policy: this.policies.active("global").policy,
+      };
+    const record = this.repositories.verify(repository);
+    return {
+      base: join(record.path, ".opencode"),
+      policy: this.policies.effective(repository).policy,
+    };
+  }
+  /** Preview, or write, the native OpenCode agents for the published harness.
+   * Owner action only; nothing an agent produces can reach it. */
+  openCodeExport(repository: string | undefined, write: boolean) {
+    const { base, policy } = this.openCodeTarget(repository);
+    const plan = planExport(base, policy.agents, policy);
+    if (!write)
+      return {
+        directory: plan.directory,
+        files: plan.files.map(({ content: _c, ...file }) => file),
+      };
+    const written = applyExport(base, plan);
+    this.store.audit(
+      "opencode.exported",
+      { directory: plan.directory, written },
+      repository ?? "",
+    );
+    return {
+      directory: plan.directory,
+      files: plan.files.map(({ content: _c, ...file }) => file),
+      written,
+    };
+  }
+  /** Owner-written agent instructions and what this session may delegate to.
+   * Prompts are governing text; they come only from the owner's policy. */
+  private agentContext(scope: Session) {
+    const policy = this.policies.effective(scope.repository).policy,
+      agent = sessionAgent(policy.agents, scope),
+      root = this.identity.session(scope.root);
+    return {
+      agent: agent && {
+        id: agent.id,
+        name: agent.name,
+        systemPrompt: agent.systemPrompt,
+        tools: agent.tools.filter((t) => policy.tools.includes(t)),
+        skills: effectiveList(
+          agent.skills.filter((x) => policy.allowedSkills.includes(x)),
+          policy.deniedSkills,
+        ),
+        mcps: effectiveList(
+          agent.mcps.filter((x) => policy.allowedMcps.includes(x)),
+          policy.deniedMcps,
+        ),
+      },
+      route: root.route,
+      stage: root.stage,
+      awaitingOwner: {
+        stageStart: this.workflow
+          .startReviews(root.root)
+          .filter((g) => g.state === "pending")
+          .map((g) => g.stage),
+        externalContent: this.externalReviews
+          .pending(root.root)
+          .map((r) => ({ review: r.id, url: r.url, mode: r.mode })),
+      },
+      stageFeedback: this.store
+        .list<{ state: string; feedback?: string; stage: string }>(
+          "stage-attempt",
+          root.repository,
+          root.root,
+        )
+        .find((a) => a.stage === root.stage && a.state === "revision_required")
+        ?.feedback,
+      orchestration: policy.orchestration,
+      agents:
+        scope.role === "Conductor"
+          ? policy.agents
+              .filter((a) => a.enabled && a.baseRole !== "Conductor")
+              .map((a) => ({
+                id: a.id,
+                name: a.name,
+                baseRole: a.baseRole,
+                description: a.description,
+              }))
+          : undefined,
+    };
+  }
   state() {
     const repositories = this.store.list<{
       id: string;
@@ -414,6 +948,13 @@ export class Engine {
     return {
       version: "0.1.0",
       platform: process.platform,
+      agentRoles: rolePermissions,
+      agentRules: {
+        core: coreTools,
+        required: requiredTools,
+        recommended: recommendedTools,
+      },
+      stageRoles,
       storageHealth: this.store.fault
         ? { healthy: false, failure: this.store.fault }
         : { healthy: true },
@@ -426,9 +967,19 @@ export class Engine {
         .map((task) => this.specialists.view(task)),
       policies: repositories.map((r) => {
         try {
-          return { repository: r.id, effective: this.policies.effective(r.id) };
+          return {
+            repository: r.id,
+            effective: this.policies.effective(r.id),
+            // What this repository has been granted beyond the global defaults.
+            grants: this.policies.grantsFor(r.id),
+          };
         } catch (error) {
-          return { repository: r.id, error: String(error) };
+          return {
+            repository: r.id,
+            error: String(error),
+            // What the saved repository policy asks for beyond the global one.
+            violations: this.policies.violations(r.id),
+          };
         }
       }),
       globalPolicy: (() => {
@@ -447,6 +998,8 @@ export class Engine {
             : undefined,
         })),
       reviews: this.store.list("review"),
+      externalReviews: this.externalReviews.list(),
+      stageStarts: this.store.list("stage-start"),
       stages: this.store.list("stage-attempt"),
       contexts: this.store.list("context"),
       candidates: this.store.list("candidate"),

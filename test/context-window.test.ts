@@ -608,3 +608,39 @@ test("automatic compaction: the host admits only exact model-issued tool calls a
     f.close();
   }
 });
+
+test("owner-written agent instructions and the enabled agent list reach the model request", async () => {
+  const f = setup();
+  try {
+    const window = new ContextWindow(
+      f.compaction,
+      () => [],
+      () => ({
+        agent: {
+          name: "Doc writer",
+          systemPrompt: "Always write documentation plans.",
+          tools: ["read"],
+          skills: [],
+          mcps: [],
+        },
+        agents: [{ id: "planner", baseRole: "Planner" }],
+        route: null,
+        stage: "research",
+        orchestration: { verifyStages: ["plan"] },
+      }),
+    );
+    const prepared = await window.prepare(
+      f.scope,
+      "model-1",
+      input,
+      profile,
+      async () => response("unused"),
+    );
+    const system = JSON.stringify(prepared.messages);
+    assert.match(system, /Always write documentation plans\./);
+    assert.match(system, /Enabled agents you may delegate to/);
+    assert.match(system, /cannot grant authority beyond your engine role/);
+  } finally {
+    f.close();
+  }
+});

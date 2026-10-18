@@ -19,7 +19,7 @@ npm start
 
 Initialization prints the location of the owner-readable web credential. Use it to sign in to the loopback controls. Keep engine state and pairing credentials outside enrolled repositories. Enrollment and pairing commands run while the engine is stopped; running-engine enrollment is also available in the controls.
 
-The web interface manages policy, reviews, evidence, context, learning and recovery. Root coding sessions start from a separate host terminal using the [OpenCode launcher](runtime/opencode/README.md). Unsupported or uncertified runtimes cannot perform protected operations.
+The web interface is the control tower: it enables a repository, chooses its agents (mandatory Orchestrator, Verifier and Reviewer; default Researcher, Planner, Implementer and Executor; owner-written custom agents), models, tools, skills and MCP servers, and the orchestration limits, globally or per repository. Manual review points, external content review and `harness.toml` import are described in [agents and routing](docs/AGENTS.md). It also manages policy, reviews, evidence, context, learning and recovery. Root coding sessions start from a separate host terminal using the [OpenCode launcher](runtime/opencode/README.md). Unsupported or uncertified runtimes cannot perform protected operations.
 
 See [conformance evidence and live tests](conformance/README.md) for test commands, platform results and their scope.
 

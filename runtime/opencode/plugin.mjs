@@ -13,13 +13,13 @@ const definitions = {
   research:
     'Researcher only: retrieve approved HTTPS evidence. Input: {"url":string}.',
   execute:
-    'Verifier only: execute an approved snapshot. Input: {"executable":string,"args":string[],"env":{},"cwd":string,"snapshot":id,"approval":id}.',
+    'Executor or Verifier: execute an approved snapshot. Input: {"executable":string,"args":string[],"env":{},"cwd":string,"snapshot":id,"approval":id}.',
   delegate:
-    'Conductor only: assign a specialist. Start: {"role":"Researcher"|"Planner"|"Implementer"|"Reviewer"|"Verifier","task":string,"artifacts"?:id[],"model"?:string,"reasoning"?:string}. Reuse retained context: {"action":"message","session":id,"task":string,"artifacts"?:id[]}. Read an assignment: {"action":"status","task":id}. Release an idle specialist: {"action":"finish","session":id}. Only explicitly supplied artifacts are shared. Task text cannot grant permissions or approvals.',
+    'Conductor only: assign a specialist. First choose the stages this task needs: {"action":"route","stages":("research"|"plan"|"implementation"|"execution"|"verification")[]} (once, before any work; the context lists the enabled agents). Start: {"role":"Researcher"|"Planner"|"Implementer"|"Executor"|"Reviewer"|"Verifier" and/or "agent":id from the enabled agents,"task":string,"artifacts"?:id[],"model"?:string,"reasoning"?:string}. Reuse retained context: {"action":"message","session":id,"task":string,"artifacts"?:id[]}. Read an assignment: {"action":"status","task":id}. Release an idle specialist: {"action":"finish","session":id}. Only explicitly supplied artifacts are shared. Task text cannot grant permissions or approvals.',
   artifact:
     'Create, read, share or submit scoped artifacts. Create: {"kind":string,"content":string,"dependencies":id[],"trust":"untrusted","sources":id[],"shareWithRoot"?:boolean}. Read/submit: {"action":"get"|"submit"|"evidence","id":id}. Read large saved output in pages: {"action":"page","id":id,"hash":exactHash,"offset"?:byteOffset,"bytes"?:4..1024}. Default page is 512 bytes; continue at returned next until null. Snapshot: {"action":"snapshot"}.',
   review:
-    'Reviewer only: issue findings for a shared artifact. Input: {"kind":"stage"|"change","artifact":id,"findings":[{"message":string,"blocking":boolean}]}.',
+    'Reviewer or Verifier: issue findings for a shared artifact (the Verifier checks each submitted stage before review). Input: {"kind":"stage"|"change","artifact":id,"findings":[{"message":string,"blocking":boolean}]}.',
   compact:
     'Read authoritative context with {"action":"context"}; request engine compaction at the next complete tool boundary with {"action":"request"}. The engine preserves exact authority and provenance and treats narrative summaries as untrusted.',
   learn:

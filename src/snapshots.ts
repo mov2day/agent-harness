@@ -126,7 +126,9 @@ export class Snapshots {
   }
   capture(scope: Session): Artifact {
     check(
-      scope.role === "Verifier" || scope.role === "Implementer",
+      scope.role === "Verifier" ||
+        scope.role === "Executor" ||
+        scope.role === "Implementer",
       "snapshot_role",
     );
     const { repository, paths } = this.paths(scope),

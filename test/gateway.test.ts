@@ -143,6 +143,7 @@ async function setup() {
       sign(f.integration.secret, registration),
     ).session;
     session.role = "Researcher";
+    session.agent = session.role.toLowerCase();
     session.enforcement = "enforced";
     f.identity.saveSession(session);
     return { session, token: f.identity.issue(session).capability };

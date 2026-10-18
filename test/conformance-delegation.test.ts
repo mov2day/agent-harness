@@ -100,7 +100,7 @@ test("delegation: children are bound to the root's command and domain allowlists
   const f = setup();
   try {
     f.stage("execution");
-    const verifier = f.child("Verifier");
+    const verifier = f.child("Executor");
     for (const patch of [
       { executable: "/bin/sh" },
       { args: ["ok", "extra"] },

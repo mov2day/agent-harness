@@ -136,8 +136,20 @@ test("policy: field-specific ceiling errors preserve publication; active corrupt
         typeof e === "object" &&
         e !== null &&
         "details" in e &&
-        !!(e.details as { maxDepth: string }).maxDepth,
+        !!(e.details as { grants: { maxDepth: string } }).grants.maxDepth,
     );
+    // The owner can grant it to this one repository on purpose.
+    f.policies.publish(f.repo.id, { ...defaultPolicy, maxDepth: 8 }, true, {
+      acknowledgeGrants: true,
+    });
+    assert.equal(f.policies.effective(f.repo.id).policy.maxDepth, 8);
+    assert.equal(
+      f.policies.active("global").policy.maxDepth,
+      2,
+      "the global default is untouched",
+    );
+    assert.equal(f.policies.effective(f.other.id).policy.maxDepth, 2);
+    f.policies.publish(f.repo.id, defaultPolicy, true);
     assert.deepEqual(f.policies.effective(f.repo.id).policy, defaultPolicy);
     const candidate = f.policies.publish(
       "global",
@@ -171,7 +183,7 @@ test("policy: concrete overlapping denies, optional policy and strict command co
           { ...global, tools: [...global.tools, "execute"] },
           true,
         ),
-      /exceeds/,
+      /Needs your confirmation[^]*execute tool/,
     );
     f.policies.publish(f.repo.id, global, true);
     f.store.remove("policy-active", f.repo.id);
